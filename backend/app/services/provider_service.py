@@ -8,6 +8,21 @@ from app.models.models import Provider, ProviderModelMap
 from app.schemas.schemas import ProviderCreate, ProviderUpdate, ProviderResponse, ModelMapResponse
 
 
+async def _create_system_log(db: AsyncSession, level: str, event_type: str, message: str, provider_name: str = None, details: dict = None):
+    """Helper to create system log without circular import."""
+    import json
+    from app.models.models import SystemLog
+    log = SystemLog(
+        created_at=int(time.time()),
+        level=level,
+        event_type=event_type,
+        provider_name=provider_name,
+        message=message,
+        details=json.dumps(details, ensure_ascii=False) if details else None
+    )
+    db.add(log)
+
+
 class ProviderService:
     def __init__(self, db: AsyncSession):
         self.db = db
@@ -221,8 +236,25 @@ class ProviderService:
         if not provider:
             return
 
+        old_failures = provider.consecutive_failures
         provider.consecutive_failures += 1
+
+        # Log failure
+        await _create_system_log(
+            self.db, "WARN", "provider_failure",
+            f"Provider '{provider.name}' failed, consecutive failures: {provider.consecutive_failures}/{provider.failure_threshold}",
+            provider_name=provider.name,
+            details={"consecutive_failures": provider.consecutive_failures, "threshold": provider.failure_threshold}
+        )
+
         if provider.consecutive_failures >= provider.failure_threshold:
             provider.blacklisted_until = now + provider.blacklist_minutes * 60
+            # Log blacklist
+            await _create_system_log(
+                self.db, "ERROR", "provider_blacklist",
+                f"Provider '{provider.name}' blacklisted for {provider.blacklist_minutes} minutes (threshold {provider.failure_threshold} reached)",
+                provider_name=provider.name,
+                details={"blacklist_minutes": provider.blacklist_minutes, "blacklisted_until": provider.blacklisted_until}
+            )
             provider.consecutive_failures = 0
         await self.db.commit()

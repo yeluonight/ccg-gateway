@@ -24,6 +24,11 @@ const router = createRouter({
           component: () => import('@/views/config/index.vue')
         },
         {
+          path: 'logs',
+          name: 'Logs',
+          component: () => import('@/views/logs/index.vue')
+        },
+        {
           path: 'mcp',
           name: 'MCP',
           component: () => import('@/views/mcp/index.vue')

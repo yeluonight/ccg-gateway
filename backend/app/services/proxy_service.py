@@ -12,6 +12,7 @@ from urllib.parse import quote
 from app.services.routing_service import RoutingService
 from app.services.provider_service import ProviderService
 from app.services.stats_service import StatsService
+from app.services.log_service import LogService
 from app.models.models import Provider, TimeoutSettings, GatewaySettings
 from sqlalchemy import select
 
@@ -72,6 +73,7 @@ class ProxyService:
         self.routing_service = routing_service
         self.provider_service = ProviderService(db)
         self.stats_service = StatsService(db)
+        self.log_service = LogService(db)
 
     async def forward_request(self, request: Request, path: str) -> Response:
         """Forward request to upstream provider."""
@@ -95,6 +97,7 @@ class ProxyService:
             upstream_url += f"?{request.url.query}"
 
         # Prepare headers (filter hop-by-hop headers)
+        client_headers = dict(request.headers)
         headers = {
             k: v for k, v in request.headers.items()
             if k.lower() not in FILTERED_HEADERS
@@ -103,9 +106,23 @@ class ProxyService:
 
         # Get request body
         body = await request.body()
+        body_str = body.decode("utf-8", errors="replace")
 
         # Check if streaming
         is_stream = self._is_streaming_request(body)
+
+        # Build log context
+        log_ctx = {
+            "cli_type": cli_type,
+            "provider_name": provider.name,
+            "client_method": request.method,
+            "client_path": path + (f"?{request.url.query}" if request.url.query else ""),
+            "client_headers": _safe_headers(client_headers),
+            "client_body": body_str,
+            "forward_url": upstream_url,
+            "forward_headers": _safe_headers(headers),
+            "forward_body": body_str,
+        }
 
         # Debug log: client request + forwarding request
         if debug_log:
@@ -131,31 +148,45 @@ class ProxyService:
             if is_stream:
                 return await self._forward_streaming(
                     provider, upstream_url, request.method, headers, body,
-                    timeouts, cli_type, start_time, debug_log
+                    timeouts, cli_type, start_time, debug_log, log_ctx
                 )
             else:
                 return await self._forward_non_streaming(
                     provider, upstream_url, request.method, headers, body,
-                    timeouts, cli_type, start_time, debug_log
+                    timeouts, cli_type, start_time, debug_log, log_ctx
                 )
+        except HTTPException:
+            raise
         except Exception as e:
-            elapsed = (time.time() - start_time) * 1000
+            elapsed = int((time.time() - start_time) * 1000)
             logger.error(f"Proxy error for provider {provider.name}: {e}")
             if debug_log:
                 logger.info(
                     f"\n[DEBUG] === ERROR ===\n"
                     f"  Provider: {provider.name}\n"
                     f"  Error: {e}\n"
-                    f"  Elapsed: {elapsed:.2f}ms\n"
+                    f"  Elapsed: {elapsed}ms\n"
                 )
             await self.provider_service.record_failure(provider.id)
             await self.stats_service.record_request(provider.id, cli_type, False)
+            # Record error log
+            if debug_log:
+                try:
+                    await self.log_service.create_request_log(
+                        **log_ctx,
+                        success=False,
+                        status_code=502,
+                        elapsed_ms=elapsed,
+                        error_message=str(e)
+                    )
+                except:
+                    pass
             raise HTTPException(status_code=502, detail="Upstream request failed")
 
     async def _forward_streaming(
         self, provider: Provider, url: str, method: str,
         headers: dict, body: bytes, timeouts: TimeoutSettings,
-        cli_type: str, start_time: float, debug_log: bool
+        cli_type: str, start_time: float, debug_log: bool, log_ctx: dict
     ) -> StreamingResponse:
         """Forward streaming request."""
         client = await get_http_client()
@@ -175,20 +206,46 @@ class ProxyService:
         if response.status_code >= 400:
             error_body = await response.aread()
             await response.aclose()
+            elapsed = int((time.time() - start_time) * 1000)
             if debug_log:
-                elapsed = (time.time() - start_time) * 1000
-                logger.info(f"\n[DEBUG] === ERROR RESPONSE ===\n  Body: {_truncate_body(error_body)}\n  Elapsed: {elapsed:.2f}ms\n")
+                logger.info(f"\n[DEBUG] === ERROR RESPONSE ===\n  Body: {_truncate_body(error_body)}\n  Elapsed: {elapsed}ms\n")
             await self.provider_service.record_failure(provider.id)
             await self.stats_service.record_request(provider.id, cli_type, False)
+            # Record error log
+            try:
+                await self.log_service.create_request_log(
+                    **log_ctx,
+                    success=False,
+                    status_code=response.status_code,
+                    elapsed_ms=elapsed,
+                    provider_status=response.status_code,
+                    provider_headers=dict(response.headers),
+                    provider_body=error_body.decode("utf-8", errors="replace"),
+                    response_status=response.status_code,
+                    response_headers=dict(response.headers),
+                    response_body=error_body.decode("utf-8", errors="replace"),
+                )
+            except:
+                pass
             return Response(content=error_body, status_code=response.status_code, media_type=response.headers.get("content-type"))
 
         first_byte_time: Optional[float] = None
         total_bytes = 0
+        collected_chunks: list[bytes] = []
+
+        # 透传上游响应头（过滤 hop-by-hop 头）
+        resp_headers = {
+            k: v for k, v in response.headers.items()
+            if k.lower() not in FILTERED_HEADERS and k.lower() != "content-encoding"
+        }
+        # HTTP 头只支持 ASCII，中文名需要 URL 编码
+        resp_headers["X-CCG-Provider"] = quote(provider.name, safe="")
 
         async def stream_generator() -> AsyncIterator[bytes]:
-            nonlocal first_byte_time, total_bytes
+            nonlocal first_byte_time, total_bytes, collected_chunks
             first_byte_received = False
             success = False
+            error_msg = None
 
             try:
                 aiter = response.aiter_bytes()
@@ -201,6 +258,7 @@ class ProxyService:
                         break
                     except asyncio.TimeoutError:
                         timeout_type = "First byte" if not first_byte_received else "Idle"
+                        error_msg = f"{timeout_type} timeout"
                         logger.warning(f"{timeout_type} timeout for provider {provider.name}")
                         yield f'event: error\ndata: {{"type":"timeout","message":"{timeout_type} timeout"}}\n\n'.encode()
                         break
@@ -210,16 +268,20 @@ class ProxyService:
                         first_byte_time = time.time()
 
                     total_bytes += len(chunk)
+                    collected_chunks.append(chunk)
                     yield chunk
 
             except httpx.TimeoutException:
+                error_msg = "connection timeout"
                 logger.error(f"Timeout for provider {provider.name}")
                 yield b'event: error\ndata: {"type":"timeout","message":"connection timeout"}\n\n'
             except Exception as e:
+                error_msg = str(e)
                 logger.error(f"Streaming error for provider {provider.name}: {e}")
                 yield f'event: error\ndata: {{"type":"error","message":"{str(e)}"}}\n\n'.encode()
             finally:
                 await response.aclose()
+                elapsed = int((time.time() - start_time) * 1000)
                 if success:
                     await self.provider_service.record_success(provider.id)
                     await self.stats_service.record_request(provider.id, cli_type, True)
@@ -228,7 +290,6 @@ class ProxyService:
                     await self.stats_service.record_request(provider.id, cli_type, False)
 
                 if debug_log:
-                    elapsed = (time.time() - start_time) * 1000
                     ttfb = (first_byte_time - start_time) * 1000 if first_byte_time else 0
                     logger.info(
                         f"\n[DEBUG] === FORWARD RESULT (streaming) ===\n"
@@ -236,16 +297,26 @@ class ProxyService:
                         f"  Success: {success}\n"
                         f"  Total Bytes: {total_bytes}\n"
                         f"  TTFB: {ttfb:.2f}ms\n"
-                        f"  Total Elapsed: {elapsed:.2f}ms\n"
+                        f"  Total Elapsed: {elapsed}ms\n"
                     )
-
-        # 透传上游响应头（过滤 hop-by-hop 头）
-        resp_headers = {
-            k: v for k, v in response.headers.items()
-            if k.lower() not in FILTERED_HEADERS and k.lower() != "content-encoding"
-        }
-        # HTTP 头只支持 ASCII，中文名需要 URL 编码
-        resp_headers["X-CCG-Provider"] = quote(provider.name, safe="")
+                    # Record streaming log
+                    try:
+                        response_body = b"".join(collected_chunks).decode("utf-8", errors="replace")
+                        await self.log_service.create_request_log(
+                            **log_ctx,
+                            success=success,
+                            status_code=response.status_code,
+                            elapsed_ms=elapsed,
+                            provider_status=response.status_code,
+                            provider_headers=dict(response.headers),
+                            provider_body=f"[streaming] {total_bytes} bytes",
+                            response_status=response.status_code,
+                            response_headers=dict(resp_headers),
+                            response_body=response_body if len(response_body) < 100000 else f"[streaming] {total_bytes} bytes",
+                            error_message=error_msg
+                        )
+                    except:
+                        pass
 
         return StreamingResponse(
             stream_generator(),
@@ -257,7 +328,7 @@ class ProxyService:
     async def _forward_non_streaming(
         self, provider: Provider, url: str, method: str,
         headers: dict, body: bytes, timeouts: TimeoutSettings,
-        cli_type: str, start_time: float, debug_log: bool
+        cli_type: str, start_time: float, debug_log: bool, log_ctx: dict
     ) -> Response:
         """Forward non-streaming request."""
         client = await get_http_client()
@@ -265,7 +336,8 @@ class ProxyService:
 
         try:
             response = await client.request(method, url, headers=headers, content=body, timeout=timeout)
-            elapsed = (time.time() - start_time) * 1000
+            elapsed = int((time.time() - start_time) * 1000)
+            response_body = response.content.decode("utf-8", errors="replace")
 
             if debug_log:
                 logger.info(
@@ -277,15 +349,34 @@ class ProxyService:
                     f"  Provider: {provider.name}\n"
                     f"  Status: {response.status_code}\n"
                     f"  Response Size: {len(response.content)} bytes\n"
-                    f"  Elapsed: {elapsed:.2f}ms\n"
+                    f"  Elapsed: {elapsed}ms\n"
                 )
 
-            if response.status_code >= 400:
-                await self.provider_service.record_failure(provider.id)
-                await self.stats_service.record_request(provider.id, cli_type, False)
-            else:
+            success = response.status_code < 400
+            if success:
                 await self.provider_service.record_success(provider.id)
                 await self.stats_service.record_request(provider.id, cli_type, True)
+            else:
+                await self.provider_service.record_failure(provider.id)
+                await self.stats_service.record_request(provider.id, cli_type, False)
+
+            # Record log
+            if debug_log:
+                try:
+                    await self.log_service.create_request_log(
+                        **log_ctx,
+                        success=success,
+                        status_code=response.status_code,
+                        elapsed_ms=elapsed,
+                        provider_status=response.status_code,
+                        provider_headers=dict(response.headers),
+                        provider_body=response_body,
+                        response_status=response.status_code,
+                        response_headers=dict(response.headers),
+                        response_body=response_body,
+                    )
+                except:
+                    pass
 
             return Response(
                 content=response.content,
@@ -295,24 +386,34 @@ class ProxyService:
             )
 
         except httpx.TimeoutException:
-            elapsed = (time.time() - start_time) * 1000
+            elapsed = int((time.time() - start_time) * 1000)
             if debug_log:
-                logger.info(f"\n[DEBUG] Non-streaming timeout after {elapsed:.2f}ms\n")
+                logger.info(f"\n[DEBUG] Non-streaming timeout after {elapsed}ms\n")
+                try:
+                    await self.log_service.create_request_log(
+                        **log_ctx,
+                        success=False,
+                        status_code=504,
+                        elapsed_ms=elapsed,
+                        error_message="Upstream timeout"
+                    )
+                except:
+                    pass
             await self.provider_service.record_failure(provider.id)
             await self.stats_service.record_request(provider.id, cli_type, False)
             raise HTTPException(status_code=504, detail="Upstream timeout")
 
     def _detect_cli_type(self, request: Request, path: str) -> str:
-        """Detect CLI type from request."""
-        if "/v1/messages" in path or "anthropic" in path.lower():
+        """Detect CLI type from User-Agent."""
+        user_agent = request.headers.get("user-agent", "").lower()
+
+        if "codex" in user_agent:
+            return "codex"
+        if "claude" in user_agent:
             return "claude_code"
-        if "/v1/chat/completions" in path:
-            user_agent = request.headers.get("user-agent", "").lower()
-            if "codex" in user_agent:
-                return "codex"
-            return "claude_code"
-        if "gemini" in path.lower() or "generativelanguage" in path.lower():
+        if "gemini" in user_agent:
             return "gemini"
+
         return "claude_code"
 
     def _is_streaming_request(self, body: bytes) -> bool:

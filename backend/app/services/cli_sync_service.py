@@ -372,9 +372,19 @@ def sync_claude_settings(base_url: str, api_key: str, default_json_config: str, 
         return False
 
 
-def sync_codex_settings(base_url: str, api_key: str, default_json_config: str, enabled: bool) -> bool:
+def get_codex_auth_path() -> Path:
+    """Codex 认证文件路径: ~/.codex/auth.json"""
+    return get_home_dir() / ".codex" / "auth.json"
+
+
+CODEX_PROVIDER_KEY = "ccg-gateway"
+CODEX_AUTH_KEY = "OPENAI_API_KEY"
+
+
+def sync_codex_settings(base_url: str, api_key: str, default_toml_config: str, enabled: bool) -> bool:
     """同步 Codex 配置"""
     config_path = get_codex_config_path()
+    auth_path = get_codex_auth_path()
 
     if not config_path.parent.exists():
         logger.debug("Codex 未安装，跳过配置同步")
@@ -395,19 +405,40 @@ def sync_codex_settings(base_url: str, api_key: str, default_json_config: str, e
             data = {}
 
         if enabled:
+            # 设置活动 provider
+            data["model_provider"] = CODEX_PROVIDER_KEY
+
+            # 创建自定义 provider
             if "model_providers" not in data:
                 data["model_providers"] = {}
-            if "openai" not in data["model_providers"]:
-                data["model_providers"]["openai"] = {}
-            data["model_providers"]["openai"]["base_url"] = base_url
-            data["model_providers"]["openai"]["env_key"] = "OPENAI_API_KEY"
+            data["model_providers"][CODEX_PROVIDER_KEY] = {
+                "name": CODEX_PROVIDER_KEY,
+                "base_url": base_url,
+                "wire_api": "responses",
+                "requires_openai_auth": False,
+            }
 
-            # 设置环境变量
-            import os
-            os.environ["OPENAI_API_KEY"] = api_key
+            # 写入 auth.json
+            auth_data = {CODEX_AUTH_KEY: api_key}
+            with open(auth_path, 'w', encoding='utf-8') as f:
+                json.dump(auth_data, f, indent=2)
+
+            # 合并用户自定义配置（TOML 格式）
+            if default_toml_config and default_toml_config.strip():
+                try:
+                    custom_config = tomli.loads(default_toml_config)
+                    _deep_merge(data, custom_config)
+                except tomli.TOMLDecodeError as e:
+                    logger.warning(f"Codex 自定义配置解析失败（非有效 TOML）: {e}")
         else:
-            if "model_providers" in data and "openai" in data["model_providers"]:
-                data["model_providers"]["openai"].pop("base_url", None)
+            # 禁用时移除自定义 provider 配置
+            if "model_providers" in data:
+                data["model_providers"].pop(CODEX_PROVIDER_KEY, None)
+            if data.get("model_provider") == CODEX_PROVIDER_KEY:
+                data.pop("model_provider", None)
+            # 移除 auth.json
+            if auth_path.exists():
+                auth_path.unlink()
 
         with open(config_path, 'wb') as f:
             tomli_w.dump(data, f)
@@ -417,6 +448,15 @@ def sync_codex_settings(base_url: str, api_key: str, default_json_config: str, e
     except Exception as e:
         logger.error(f"同步 Codex 配置失败: {e}")
         return False
+
+
+def _deep_merge(base: dict, override: dict) -> None:
+    """深度合并字典，override 覆盖 base"""
+    for key, value in override.items():
+        if key in base and isinstance(base[key], dict) and isinstance(value, dict):
+            _deep_merge(base[key], value)
+        else:
+            base[key] = value
 
 
 def sync_gemini_settings(base_url: str, api_key: str, default_json_config: str, enabled: bool) -> bool:

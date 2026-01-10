@@ -205,6 +205,7 @@ class DailyStatsResponse(BaseModel):
 class ProviderStatsResponse(BaseModel):
     provider_id: int
     provider_name: str
+    cli_type: str
     total_requests: int
     total_success: int
     total_failure: int
@@ -218,3 +219,77 @@ class SystemStatusResponse(BaseModel):
     port: int
     uptime: int
     version: str
+
+
+# Log Schemas
+class RequestLogListItem(BaseModel):
+    id: int
+    created_at: int
+    cli_type: str
+    provider_name: str
+    success: bool
+    status_code: Optional[int]
+    elapsed_ms: int
+    client_method: str
+    client_path: str
+
+    class Config:
+        from_attributes = True
+
+
+class RequestLogDetail(BaseModel):
+    id: int
+    created_at: int
+    cli_type: str
+    provider_name: str
+    success: bool
+    status_code: Optional[int]
+    elapsed_ms: int
+    client_method: str
+    client_path: str
+    client_headers: str
+    client_body: str
+    forward_url: str
+    forward_headers: str
+    forward_body: str
+    provider_status: Optional[int]
+    provider_headers: Optional[str]
+    provider_body: Optional[str]
+    response_status: Optional[int]
+    response_headers: Optional[str]
+    response_body: Optional[str]
+    error_message: Optional[str]
+
+    class Config:
+        from_attributes = True
+
+
+class RequestLogListResponse(BaseModel):
+    items: list[RequestLogListItem]
+    total: int
+    page: int
+    page_size: int
+
+
+class SystemLogItem(BaseModel):
+    id: int
+    created_at: int
+    level: str
+    event_type: str
+    provider_name: Optional[str]
+    message: str
+    details: Optional[str]
+
+    class Config:
+        from_attributes = True
+
+
+class SystemLogListResponse(BaseModel):
+    items: list[SystemLogItem]
+    total: int
+    page: int
+    page_size: int
+
+
+class ClearLogsRequest(BaseModel):
+    before_timestamp: Optional[int] = None

@@ -93,10 +93,11 @@ class StatsService:
         start_date: Optional[str] = None,
         end_date: Optional[str] = None
     ) -> List[ProviderStatsResponse]:
-        """Get aggregated statistics by provider."""
+        """Get aggregated statistics by provider and cli_type."""
         query = select(
             UsageDaily.provider_id,
             Provider.name,
+            UsageDaily.cli_type,
             func.sum(UsageDaily.request_count).label("total_requests"),
             func.sum(UsageDaily.success_count).label("total_success"),
             func.sum(UsageDaily.failure_count).label("total_failure"),
@@ -110,7 +111,7 @@ class StatsService:
         if end_date:
             query = query.where(UsageDaily.usage_date <= end_date)
 
-        query = query.group_by(UsageDaily.provider_id, Provider.name)
+        query = query.group_by(UsageDaily.provider_id, Provider.name, UsageDaily.cli_type)
 
         result = await self.db.execute(query)
         rows = result.all()
@@ -119,6 +120,7 @@ class StatsService:
             ProviderStatsResponse(
                 provider_id=row.provider_id,
                 provider_name=row.name,
+                cli_type=row.cli_type,
                 total_requests=row.total_requests or 0,
                 total_success=row.total_success or 0,
                 total_failure=row.total_failure or 0,

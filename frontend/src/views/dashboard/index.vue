@@ -36,7 +36,7 @@
       </el-col>
     </el-row>
 
-    <!-- 中部双栏 -->
+    <!-- 服务商统计 & 请求趋势 -->
     <el-row :gutter="16" class="main-row">
       <el-col :span="12">
         <el-card class="main-card" shadow="always">
@@ -57,6 +57,7 @@
             </div>
           </template>
           <el-table :data="providerStats" stripe size="small" class="stats-table">
+            <el-table-column prop="cli_type" label="CLI" width="100" />
             <el-table-column prop="provider_name" label="服务商" />
             <el-table-column prop="total_requests" label="请求" width="80" />
             <el-table-column label="成功率" width="80">
@@ -66,32 +67,17 @@
                 </el-tag>
               </template>
             </el-table-column>
-            <el-table-column prop="total_tokens" label="Token" width="80" />
+            <el-table-column prop="total_tokens" label="Token" width="100" />
           </el-table>
         </el-card>
       </el-col>
       <el-col :span="12">
         <el-card class="main-card" shadow="always">
-          <template #header>每日明细</template>
-          <el-table :data="dailyStats" stripe size="small" class="detail-table">
-            <el-table-column prop="usage_date" label="日期" width="90" />
-            <el-table-column prop="provider_name" label="服务商" />
-            <el-table-column prop="request_count" label="请求" width="60" />
-            <el-table-column label="成功率" width="70">
-              <template #default="{ row }">
-                {{ row.request_count ? ((row.success_count / row.request_count) * 100).toFixed(0) : 0 }}%
-              </template>
-            </el-table-column>
-          </el-table>
+          <template #header>请求趋势</template>
+          <div ref="chartRef" class="chart-container"></div>
         </el-card>
       </el-col>
     </el-row>
-
-    <!-- 请求趋势 -->
-    <el-card class="chart-card" shadow="always">
-      <template #header>请求趋势</template>
-      <div ref="chartRef" class="chart-container"></div>
-    </el-card>
   </div>
 </template>
 
@@ -165,29 +151,47 @@ async function fetchStats() {
     params.start_date = dateRange.value[0]
     params.end_date = dateRange.value[1]
   }
-
-  const [dailyRes, providerRes] = await Promise.all([
-    statsApi.getDaily(params),
-    statsApi.getProviders(params)
-  ])
-
-  dailyStats.value = dailyRes.data
+  const providerRes = await statsApi.getProviders(params)
   providerStats.value = providerRes.data
+}
+
+async function fetchChartData() {
+  const today = new Date()
+  const fiveDaysAgo = new Date(today)
+  fiveDaysAgo.setDate(today.getDate() - 4)
+  const params = {
+    start_date: fiveDaysAgo.toISOString().split('T')[0],
+    end_date: today.toISOString().split('T')[0]
+  }
+  const dailyRes = await statsApi.getDaily(params)
+  dailyStats.value = dailyRes.data
   updateChart()
 }
 
 function updateChart() {
-  if (!chart || !dailyStats.value.length) return
+  if (!chart) return
 
-  const dateMap = new Map<string, { success: number; failure: number }>()
-  for (const stat of dailyStats.value) {
-    const existing = dateMap.get(stat.usage_date) || { success: 0, failure: 0 }
-    existing.success += stat.success_count
-    existing.failure += stat.failure_count
-    dateMap.set(stat.usage_date, existing)
+  // 生成最近5天的日期
+  const dates: string[] = []
+  for (let i = 4; i >= 0; i--) {
+    const d = new Date()
+    d.setDate(d.getDate() - i)
+    dates.push(d.toISOString().split('T')[0])
   }
 
-  const dates = Array.from(dateMap.keys()).sort()
+  // 汇总数据
+  const dateMap = new Map<string, { success: number; failure: number }>()
+  for (const date of dates) {
+    dateMap.set(date, { success: 0, failure: 0 })
+  }
+  for (const stat of dailyStats.value) {
+    const existing = dateMap.get(stat.usage_date)
+    if (existing) {
+      existing.success += stat.success_count
+      existing.failure += stat.failure_count
+    }
+  }
+
   const successData = dates.map(d => dateMap.get(d)!.success)
   const failureData = dates.map(d => dateMap.get(d)!.failure)
 
@@ -209,7 +213,8 @@ onMounted(async () => {
     dashboardStore.fetchStatus(),
     providerStore.fetchProviders(),
     settingsStore.fetchSettings(),
-    fetchStats()
+    fetchStats(),
+    fetchChartData()
   ])
   await nextTick()
   if (chartRef.value && !chart) {
@@ -326,20 +331,7 @@ onMounted(async () => {
 }
 
 .chart-container {
-  height: 280px;
-}
-
-.chart-card {
-  margin-bottom: 16px;
-}
-
-.chart-card :deep(.el-card__body) {
-  height: 280px;
-  padding: 16px;
-}
-
-.detail-table {
-  height: 100%;
+  height: calc(320px - 56px - 32px);
 }
 
 .card-header {

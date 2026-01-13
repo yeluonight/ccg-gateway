@@ -51,7 +51,7 @@
                 end-placeholder="结束"
                 value-format="YYYY-MM-DD"
                 size="small"
-                style="width: 240px"
+                style="width: 200px"
                 @change="fetchStats"
               />
             </div>
@@ -345,5 +345,20 @@ onMounted(async () => {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 16px;
+}
+
+.card-header :deep(.el-date-editor) {
+  flex-shrink: 0;
+  flex-grow: 0;
+  width: fit-content !important;
+}
+
+.card-header :deep(.el-range-input) {
+  width: 80px;
+}
+
+.main-card :deep(.el-card__header) {
+  display: block;
 }
 </style>

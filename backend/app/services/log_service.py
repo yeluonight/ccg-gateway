@@ -30,6 +30,7 @@ class LogService:
         forward_url: str,
         forward_headers: dict,
         forward_body: str,
+        created_at: Optional[int] = None,
         provider_status: Optional[int] = None,
         provider_headers: Optional[dict] = None,
         provider_body: Optional[str] = None,
@@ -39,7 +40,7 @@ class LogService:
         error_message: Optional[str] = None
     ) -> RequestLog:
         log = RequestLog(
-            created_at=int(time.time()),
+            created_at=created_at or int(time.time()),
             cli_type=cli_type,
             provider_name=provider_name,
             success=1 if success else 0,
@@ -110,7 +111,7 @@ class LogService:
         total = len(count_result.scalars().all())
 
         # Get paginated results
-        query = query.order_by(desc(RequestLog.created_at))
+        query = query.order_by(desc(RequestLog.created_at), desc(RequestLog.id))
         query = query.offset((page - 1) * page_size).limit(page_size)
         result = await self.db.execute(query)
         logs = result.scalars().all()
@@ -147,7 +148,7 @@ class LogService:
         total = len(count_result.scalars().all())
 
         # Get paginated results
-        query = query.order_by(desc(SystemLog.created_at))
+        query = query.order_by(desc(SystemLog.created_at), desc(SystemLog.id))
         query = query.offset((page - 1) * page_size).limit(page_size)
         result = await self.db.execute(query)
         logs = result.scalars().all()

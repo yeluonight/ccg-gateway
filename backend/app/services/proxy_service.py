@@ -149,6 +149,7 @@ class ProxyService:
                     forward_url="",
                     forward_headers={},
                     forward_body="",
+                    created_at=int(start_time),
                     success=False,
                     status_code=503,
                     elapsed_ms=int((time.time() - start_time) * 1000),
@@ -218,6 +219,7 @@ class ProxyService:
             "forward_url": upstream_url,
             "forward_headers": _safe_headers(headers),
             "forward_body": forward_body_str,
+            "created_at": int(start_time),
         }
 
         # Debug log: client request + forwarding request

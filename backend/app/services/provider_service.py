@@ -1,11 +1,23 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, delete, text
 from sqlalchemy.orm import selectinload
-from typing import List, Optional
+from typing import List, Optional, Dict
 import time
+import asyncio
 
 from app.models.models import Provider, ProviderModelMap
 from app.schemas.schemas import ProviderCreate, ProviderUpdate, ProviderResponse, ModelMapResponse
+
+# Per-provider locks for failure recording
+_provider_locks: Dict[int, asyncio.Lock] = {}
+_locks_lock = asyncio.Lock()
+
+
+async def _get_provider_lock(provider_id: int) -> asyncio.Lock:
+    async with _locks_lock:
+        if provider_id not in _provider_locks:
+            _provider_locks[provider_id] = asyncio.Lock()
+        return _provider_locks[provider_id]
 
 
 async def _create_system_log(db: AsyncSession, level: str, event_type: str, message: str, provider_name: str = None, details: dict = None):
@@ -228,33 +240,49 @@ class ProviderService:
             await self.db.commit()
 
     async def record_failure(self, provider_id: int):
-        now = int(time.time())
-        result = await self.db.execute(
-            select(Provider).where(Provider.id == provider_id)
-        )
-        provider = result.scalar_one_or_none()
-        if not provider:
-            return
+        lock = await _get_provider_lock(provider_id)
+        async with lock:
+            now = int(time.time())
 
-        old_failures = provider.consecutive_failures
-        provider.consecutive_failures += 1
-
-        # Log failure
-        await _create_system_log(
-            self.db, "WARN", "provider_failure",
-            f"Provider '{provider.name}' failed, consecutive failures: {provider.consecutive_failures}/{provider.failure_threshold}",
-            provider_name=provider.name,
-            details={"consecutive_failures": provider.consecutive_failures, "threshold": provider.failure_threshold}
-        )
-
-        if provider.consecutive_failures >= provider.failure_threshold:
-            provider.blacklisted_until = now + provider.blacklist_minutes * 60
-            # Log blacklist
-            await _create_system_log(
-                self.db, "ERROR", "provider_blacklist",
-                f"Provider '{provider.name}' blacklisted for {provider.blacklist_minutes} minutes (threshold {provider.failure_threshold} reached)",
-                provider_name=provider.name,
-                details={"blacklist_minutes": provider.blacklist_minutes, "blacklisted_until": provider.blacklisted_until}
+            result = await self.db.execute(
+                text("SELECT name, consecutive_failures, failure_threshold, blacklist_minutes, blacklisted_until FROM providers WHERE id = :id"),
+                {"id": provider_id}
             )
-            provider.consecutive_failures = 0
-        await self.db.commit()
+            row = result.fetchone()
+            if not row:
+                return
+
+            name, failures, threshold, blacklist_minutes, blacklisted_until = row
+
+            # Skip if already blacklisted (concurrent requests that started before blacklist)
+            if blacklisted_until and blacklisted_until > now:
+                return
+
+            new_failures = failures + 1
+
+            await _create_system_log(
+                self.db, "WARN", "provider_failure",
+                f"Provider '{name}' failed, consecutive failures: {new_failures}/{threshold}",
+                provider_name=name,
+                details={"consecutive_failures": new_failures, "threshold": threshold}
+            )
+
+            if new_failures >= threshold:
+                blacklist_until = now + blacklist_minutes * 60
+                await self.db.execute(
+                    text("UPDATE providers SET consecutive_failures = 0, blacklisted_until = :until WHERE id = :id"),
+                    {"until": blacklist_until, "id": provider_id}
+                )
+                await _create_system_log(
+                    self.db, "ERROR", "provider_blacklist",
+                    f"Provider '{name}' blacklisted for {blacklist_minutes} minutes (threshold {threshold} reached)",
+                    provider_name=name,
+                    details={"blacklist_minutes": blacklist_minutes, "blacklisted_until": blacklist_until}
+                )
+            else:
+                await self.db.execute(
+                    text("UPDATE providers SET consecutive_failures = :failures WHERE id = :id"),
+                    {"failures": new_failures, "id": provider_id}
+                )
+
+            await self.db.commit()

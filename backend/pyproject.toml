@@ -16,6 +16,17 @@ dependencies = [
     "webdavclient3>=3.14.6",
 ]
 
+[project.optional-dependencies]
+desktop = [
+    "pywebview>=5.0",
+    "pystray>=0.19",
+    "pillow>=10.0",
+    "pyinstaller>=6.0",
+]
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
 [[tool.uv.index]]
 url = "https://pypi.tuna.tsinghua.edu.cn/simple"
 default = true

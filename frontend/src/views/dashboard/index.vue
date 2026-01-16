@@ -28,10 +28,6 @@
         <el-card class="kpi-card" shadow="always">
           <div class="kpi-value">{{ kpi.value }}</div>
           <div class="kpi-label">{{ kpi.label }}</div>
-          <div class="kpi-change" :class="kpi.changeType">
-            <span v-if="kpi.change !== 0">{{ kpi.change > 0 ? '↑' : '↓' }} {{ Math.abs(kpi.change).toFixed(1) }}%</span>
-            <span v-else class="no-change">-</span>
-          </div>
         </el-card>
       </el-col>
     </el-row>
@@ -309,23 +305,6 @@ onMounted(async () => {
 .kpi-label {
   font-size: 14px;
   color: #606266;
-  margin: 8px 0;
-}
-
-.kpi-change {
-  font-size: 12px;
-}
-
-.kpi-change.up {
-  color: #67C23A;
-}
-
-.kpi-change.down {
-  color: #F56C6C;
-}
-
-.kpi-change .no-change {
-  color: #909399;
 }
 
 .main-row {

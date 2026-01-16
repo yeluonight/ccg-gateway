@@ -165,10 +165,8 @@
             />
           </div>
           <div class="message-content">{{ getDisplayContent(msg.content, index) }}</div>
-          <div v-if="isLongMessage(msg.content)" class="expand-btn">
-            <el-button type="primary" link size="small" @click="toggleExpand(index)">
-              {{ expandedMessages.has(index) ? '收起' : '展开全部' }}
-            </el-button>
+          <div v-if="isLongMessage(msg.content)" class="expand-btn" @click="toggleExpand(index)">
+            {{ expandedMessages.has(index) ? '收起' : '展开全部' }}
           </div>
         </div>
         <el-empty v-if="sessionStore.messages.length === 0" description="暂无消息" />
@@ -547,8 +545,21 @@ onMounted(() => {
 }
 
 .chat-message {
-  padding: 12px 16px;
   border-radius: 8px;
+  overflow: hidden;
+}
+
+.chat-message .message-header,
+.chat-message .message-content {
+  padding: 0 16px;
+}
+
+.chat-message .message-header {
+  padding-top: 12px;
+}
+
+.chat-message .message-content {
+  padding-bottom: 12px;
 }
 
 .chat-message.user {
@@ -574,7 +585,18 @@ onMounted(() => {
 }
 
 .expand-btn {
-  margin-top: 8px;
-  text-align: right;
+  width: 100%;
+  padding: 10px 0;
+  text-align: center;
+  cursor: pointer;
+  color: var(--el-color-primary);
+  font-size: 13px;
+  background: rgba(0, 0, 0, 0.03);
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+  transition: background 0.2s;
+}
+
+.expand-btn:hover {
+  background: rgba(0, 0, 0, 0.06);
 }
 </style>

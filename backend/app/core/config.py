@@ -3,11 +3,13 @@ from pathlib import Path
 from pydantic_settings import BaseSettings
 
 
+IS_PACKAGED = getattr(sys, 'frozen', False)
+
+
 def get_base_dir() -> Path:
-    """Get base directory, handling PyInstaller bundled mode."""
-    if getattr(sys, 'frozen', False):
+    if IS_PACKAGED:
         return Path(sys.executable).parent
-    return Path(__file__).resolve().parent.parent.parent
+    return Path(__file__).resolve().parent.parent.parent.parent
 
 
 def get_data_dir() -> Path:
@@ -15,17 +17,26 @@ def get_data_dir() -> Path:
 
 
 def get_env_file() -> Path:
-    if getattr(sys, 'frozen', False):
-        return get_base_dir() / ".env"
-    return get_base_dir().parent / ".env"
+    return get_base_dir() / ".env"
+
+
+def get_frontend_dist() -> Path | None:
+    if IS_PACKAGED:
+        meipass = getattr(sys, '_MEIPASS', None)
+        if meipass:
+            dist = Path(meipass) / "frontend" / "dist"
+            if dist.exists():
+                return dist
+    else:
+        dist = get_base_dir() / "frontend" / "dist"
+        if dist.exists():
+            return dist
+    return None
 
 
 class Settings(BaseSettings):
     PROJECT_NAME: str = "CCG-Gateway"
     VERSION: str = "0.1.0"
-
-    # Database
-    DATABASE_URL: str = "sqlite+aiosqlite:///./data/ccg_gateway.db"
 
     # Gateway defaults
     GATEWAY_PORT: int = 7788

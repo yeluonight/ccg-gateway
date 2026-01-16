@@ -1,15 +1,12 @@
 import asyncio
 import logging
-import os
-import sys
 from contextlib import asynccontextmanager
-from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
-from app.core.config import settings, get_data_dir
+from app.core.config import settings, get_data_dir, get_frontend_dist
 
 
 def setup_logging():
@@ -30,22 +27,6 @@ from app.core.uptime import init_start_time
 from app.api.admin import admin_router
 from app.api.proxy import proxy_router
 from app.services.init_service import init_default_data
-
-
-def get_frontend_dist() -> Path | None:
-    """Get frontend dist path for desktop mode."""
-    if not os.getenv("DESKTOP_MODE"):
-        return None
-    # PyInstaller bundled
-    if hasattr(sys, '_MEIPASS'):
-        dist = Path(sys._MEIPASS) / "frontend" / "dist"
-        if dist.exists():
-            return dist
-    # Development
-    dist = Path(__file__).parent.parent.parent / "frontend" / "dist"
-    if dist.exists():
-        return dist
-    return None
 
 
 frontend_dist = get_frontend_dist()

@@ -4,9 +4,6 @@ import socket
 import threading
 import time
 
-# Set desktop mode before importing app
-os.environ["DESKTOP_MODE"] = "1"
-
 # Add backend to path (for development mode)
 backend_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "backend")
 if os.path.exists(backend_path):

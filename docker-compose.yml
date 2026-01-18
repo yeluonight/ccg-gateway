@@ -1,0 +1,31 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: ccg-gateway-backend
+    ports:
+      - "7788:7788"
+      - "3000:3000"  # 前端端口也由后端容器暴露
+    volumes:
+      # 持久化数据目录
+      - ./data:/data
+    environment:
+      - GATEWAY_PORT=7788
+      - LOG_TO_FILE=0
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: ccg-gateway-frontend
+    network_mode: "service:backend"  # 共享后端容器的网络栈
+    environment:
+      - GATEWAY_PORT=7788
+      - UI_PORT=3000
+    depends_on:
+      - backend
+    restart: unless-stopped

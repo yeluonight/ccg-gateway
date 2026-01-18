@@ -28,6 +28,18 @@ export default defineConfig(({ mode }) => {
         '@': fileURLToPath(new URL('./src', import.meta.url))
       }
     },
+    build: {
+      rollupOptions: {
+        output: {
+          manualChunks: {
+            'vue-vendor': ['vue', 'vue-router', 'pinia'],
+            'element-plus': ['element-plus', '@element-plus/icons-vue'],
+            'echarts': ['echarts', 'vue-echarts'],
+            'axios': ['axios']
+          }
+        }
+      }
+    },
     server: {
       port: uiPort,
       proxy: {

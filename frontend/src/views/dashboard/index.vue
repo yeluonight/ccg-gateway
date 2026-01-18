@@ -82,12 +82,17 @@
 <script setup lang="ts">
 import { onMounted, ref, reactive, computed, nextTick } from 'vue'
 import { ElMessage } from 'element-plus'
-import * as echarts from 'echarts'
+import * as echarts from 'echarts/core'
+import { BarChart } from 'echarts/charts'
+import { GridComponent, TooltipComponent, LegendComponent } from 'echarts/components'
+import { CanvasRenderer } from 'echarts/renderers'
 import { useDashboardStore } from '@/stores/dashboard'
 import { useProviderStore } from '@/stores/providers'
 import { useSettingsStore } from '@/stores/settings'
 import { statsApi } from '@/api/stats'
 import type { ProviderStats, DailyStats } from '@/types/models'
+
+echarts.use([BarChart, GridComponent, TooltipComponent, LegendComponent, CanvasRenderer])
 
 const dashboardStore = useDashboardStore()
 const providerStore = useProviderStore()

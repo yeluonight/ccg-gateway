@@ -1,0 +1,62 @@
+name: Sync Upstream (mos1128/ccg-gateway)
+
+on:
+  schedule:
+    - cron: "0 * * * *" # 每小时同步一次
+  workflow_dispatch:
+
+concurrency:
+  group: "sync-upstream"
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          # 建议配置 secrets.UPSTREAM_SYNC_TOKEN（Fine-grained PAT），否则用 GITHUB_TOKEN 推送可能不会触发后续 build 工作流
+          token: ${{ secrets.UPSTREAM_SYNC_TOKEN != '' && secrets.UPSTREAM_SYNC_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - name: Configure Git
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Fetch upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          git remote add upstream "https://github.com/mos1128/ccg-gateway.git" || true
+          git fetch upstream "main" --prune
+
+      - name: Check upstream updates
+        id: check
+        shell: bash
+        run: |
+          set -euo pipefail
+          ahead="$(git rev-list --count "HEAD..upstream/main")"
+          echo "ahead=${ahead}" >> "${GITHUB_OUTPUT}"
+          echo "Upstream commits to sync: ${ahead}"
+
+      - name: Merge upstream/main
+        if: steps.check.outputs.ahead != '0'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge --no-edit "upstream/main"
+
+      - name: Push to fork main
+        if: steps.check.outputs.ahead != '0'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git push "origin" "HEAD:main"

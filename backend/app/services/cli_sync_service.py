@@ -2,6 +2,7 @@
 import json
 from pathlib import Path
 import logging
+from app.services import cli_config_manager
 
 # Python 3.11+ has tomllib in stdlib, fallback to tomli
 try:
@@ -347,18 +348,14 @@ def sync_claude_settings(base_url: str, api_key: str, default_json_config: str, 
         return True
 
     try:
-        # 读取现有配置，处理文件为空的情况
-        data = {}
-        if settings_path.exists():
-            content = settings_path.read_text(encoding='utf-8').strip()
-            if content:
-                data = json.loads(content)
-
         if enabled:
-            if "env" not in data:
-                data["env"] = {}
-            data["env"]["ANTHROPIC_BASE_URL"] = base_url
-            data["env"]["ANTHROPIC_AUTH_TOKEN"] = api_key
+            # 启用时：全新写入配置
+            data = {
+                "env": {
+                    "ANTHROPIC_BASE_URL": base_url,
+                    "ANTHROPIC_AUTH_TOKEN": api_key
+                }
+            }
 
             # 合并用户自定义配置（仅当配置非空时）
             if default_json_config and default_json_config.strip():
@@ -367,21 +364,15 @@ def sync_claude_settings(base_url: str, api_key: str, default_json_config: str, 
                     _deep_merge(data, custom_config)
                 except json.JSONDecodeError as e:
                     logger.warning(f"Claude Code 自定义配置解析失败（非有效 JSON）: {e}")
-        else:
-            # 禁用时移除配置
-            if "env" in data:
-                data["env"].pop("ANTHROPIC_BASE_URL", None)
-                data["env"].pop("ANTHROPIC_AUTH_TOKEN", None)
-            # 移除自定义配置中的字段
-            if default_json_config and default_json_config.strip():
-                try:
-                    custom_config = json.loads(default_json_config)
-                    _remove_keys(data, custom_config)
-                except json.JSONDecodeError:
-                    pass
 
-        with open(settings_path, 'w', encoding='utf-8') as f:
-            json.dump(data, f, indent=2, ensure_ascii=False)
+            with open(settings_path, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+        else:
+            # 禁用时：恢复备份或清空配置
+            if cli_config_manager.has_claude_backup():
+                cli_config_manager.restore_claude_config()
+            else:
+                cli_config_manager.clear_claude_config()
 
         logger.info(f"已同步 Claude Code 配置 (enabled={enabled})")
         return True
@@ -413,30 +404,19 @@ def sync_codex_settings(base_url: str, api_key: str, default_toml_config: str, e
         return False
 
     try:
-        if config_path.exists():
-            with open(config_path, 'rb') as f:
-                data = tomli.load(f)
-        else:
-            data = {}
-
         if enabled:
-            # 设置活动 provider
-            data["model_provider"] = CODEX_PROVIDER_KEY
-
-            # 创建自定义 provider
-            if "model_providers" not in data:
-                data["model_providers"] = {}
-            data["model_providers"][CODEX_PROVIDER_KEY] = {
-                "name": CODEX_PROVIDER_KEY,
-                "base_url": base_url,
-                "wire_api": "responses",
-                "requires_openai_auth": False,
+            # 启用时：全新写入配置
+            data = {
+                "model_provider": CODEX_PROVIDER_KEY,
+                "model_providers": {
+                    CODEX_PROVIDER_KEY: {
+                        "name": CODEX_PROVIDER_KEY,
+                        "base_url": base_url,
+                        "wire_api": "responses",
+                        "requires_openai_auth": False,
+                    }
+                }
             }
-
-            # 写入 auth.json
-            auth_data = {CODEX_AUTH_KEY: api_key}
-            with open(auth_path, 'w', encoding='utf-8') as f:
-                json.dump(auth_data, f, indent=2)
 
             # 合并用户自定义配置（TOML 格式）
             if default_toml_config and default_toml_config.strip():
@@ -445,32 +425,20 @@ def sync_codex_settings(base_url: str, api_key: str, default_toml_config: str, e
                     _deep_merge(data, custom_config)
                 except tomli.TOMLDecodeError as e:
                     logger.warning(f"Codex 自定义配置解析失败（非有效 TOML）: {e}")
-        else:
-            # 禁用时移除自定义 provider 配置
-            if "model_providers" in data:
-                data["model_providers"].pop(CODEX_PROVIDER_KEY, None)
-            if data.get("model_provider") == CODEX_PROVIDER_KEY:
-                data.pop("model_provider", None)
-            # 移除 auth.json 中的 OPENAI_API_KEY 字段
-            if auth_path.exists():
-                try:
-                    with open(auth_path, 'r', encoding='utf-8') as f:
-                        auth_data = json.load(f)
-                    auth_data.pop(CODEX_AUTH_KEY, None)
-                    with open(auth_path, 'w', encoding='utf-8') as f:
-                        json.dump(auth_data, f, indent=2)
-                except (json.JSONDecodeError, IOError):
-                    pass
-            # 移除自定义配置中的字段
-            if default_toml_config and default_toml_config.strip():
-                try:
-                    custom_config = tomli.loads(default_toml_config)
-                    _remove_keys(data, custom_config)
-                except tomli.TOMLDecodeError:
-                    pass
 
-        with open(config_path, 'wb') as f:
-            tomli_w.dump(data, f)
+            with open(config_path, 'wb') as f:
+                tomli_w.dump(data, f)
+
+            # 写入 auth.json
+            auth_data = {CODEX_AUTH_KEY: api_key}
+            with open(auth_path, 'w', encoding='utf-8') as f:
+                json.dump(auth_data, f, indent=2)
+        else:
+            # 禁用时：恢复备份或清空配置
+            if cli_config_manager.has_codex_backup():
+                cli_config_manager.restore_codex_config()
+            else:
+                cli_config_manager.clear_codex_config()
 
         logger.info(f"已同步 Codex 配置 (enabled={enabled})")
         return True
@@ -509,15 +477,11 @@ def sync_gemini_settings(base_url: str, api_key: str, default_json_config: str, 
         return True
 
     try:
-        # 读取现有配置，处理文件为空的情况
-        data = {}
-        if settings_path.exists():
-            content = settings_path.read_text(encoding='utf-8').strip()
-            if content:
-                data = json.loads(content)
-
         env_path = settings_path.parent / ".env"
+
         if enabled:
+            # 启用时：全新写入配置
+            # 写入 .env 文件
             env_lines = [
                 f'GEMINI_API_KEY={api_key}',
                 f'GOOGLE_GEMINI_BASE_URL={base_url}',
@@ -526,12 +490,14 @@ def sync_gemini_settings(base_url: str, api_key: str, default_json_config: str, 
             with open(env_path, 'w', encoding='utf-8') as f:
                 f.write('\n'.join(env_lines))
 
-            # 设置认证类型
-            if "security" not in data:
-                data["security"] = {}
-            if "auth" not in data["security"]:
-                data["security"]["auth"] = {}
-            data["security"]["auth"]["selectedType"] = "gemini-api-key"
+            # 写入 settings.json
+            data = {
+                "security": {
+                    "auth": {
+                        "selectedType": "gemini-api-key"
+                    }
+                }
+            }
 
             # 合并用户自定义配置（仅当配置非空时）
             if default_json_config and default_json_config.strip():
@@ -544,29 +510,11 @@ def sync_gemini_settings(base_url: str, api_key: str, default_json_config: str, 
             with open(settings_path, 'w', encoding='utf-8') as f:
                 json.dump(data, f, indent=2, ensure_ascii=False)
         else:
-            # 禁用时清空 .env 文件
-            if env_path.exists():
-                with open(env_path, 'w', encoding='utf-8') as f:
-                    f.write("")
-            # 移除 settings.json 中的认证配置
-            if settings_path.exists():
-                if "security" in data and "auth" in data["security"]:
-                    data["security"]["auth"].pop("selectedType", None)
-                    # 如果 auth 为空，移除 auth
-                    if not data["security"]["auth"]:
-                        data["security"].pop("auth", None)
-                    # 如果 security 为空，移除 security
-                    if not data["security"]:
-                        data.pop("security", None)
-                # 移除自定义配置中的字段
-                if default_json_config and default_json_config.strip():
-                    try:
-                        custom_config = json.loads(default_json_config)
-                        _remove_keys(data, custom_config)
-                    except json.JSONDecodeError:
-                        pass
-                with open(settings_path, 'w', encoding='utf-8') as f:
-                    json.dump(data, f, indent=2, ensure_ascii=False)
+            # 禁用时：恢复备份或清空配置
+            if cli_config_manager.has_gemini_backup():
+                cli_config_manager.restore_gemini_config()
+            else:
+                cli_config_manager.clear_gemini_config()
 
         logger.info(f"已同步 Gemini CLI 配置 (enabled={enabled})")
         return True

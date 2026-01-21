@@ -1,5 +1,5 @@
 # Stage 1: 构建前端
-FROM node:18-slim AS frontend-builder
+FROM node:20-slim AS frontend-builder
 WORKDIR /build
 RUN npm install -g pnpm
 COPY frontend/package.json frontend/pnpm-lock.yaml* ./
@@ -8,7 +8,7 @@ COPY frontend/ .
 RUN pnpm build
 
 # Stage 2: 后端 + 前端静态文件
-FROM python:3.10-slim
+FROM python:3.13-slim
 WORKDIR /app
 
 # 安装 uv 并安装依赖

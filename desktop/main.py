@@ -59,17 +59,10 @@ class App:
         self.server = Server()
         self.tray = TrayIcon(on_show=self.show_window, on_quit=self.quit)
         set_show_callback(self.show_window)
-        self.is_minimized = False
-        self.was_maximized = False
 
     def show_window(self):
         if self.window:
-            if self.is_minimized:
-                self.window.restore()
-                if self.was_maximized:
-                    self.window.maximize()
-            else:
-                self.window.show()
+            self.window.show()
 
     def hide_window(self):
         if self.window:
@@ -78,22 +71,6 @@ class App:
     def on_closing(self):
         self.hide_window()
         return False  # Prevent window destruction
-
-    def on_minimized(self):
-        self.is_minimized = True
-
-    def on_restored(self):
-        # 如果之前是最小化状态，说明是从最小化恢复，保持 was_maximized 不变
-        # 如果之前不是最小化状态，说明是从最大化恢复到正常大小
-        if not self.is_minimized:
-            self.was_maximized = False
-        self.is_minimized = False
-
-    def on_shown(self):
-        self.is_minimized = False
-
-    def on_maximized(self):
-        self.was_maximized = True
 
     def quit(self):
         def _exit():
@@ -129,13 +106,6 @@ class App:
             text_select=True,
         )
         self.window.events.closing += self.on_closing
-        self.window.events.minimized += self.on_minimized
-        self.window.events.restored += self.on_restored
-        self.window.events.shown += self.on_shown
-        self.window.events.maximized += self.on_maximized
-
-        # Window starts maximized
-        self.was_maximized = True
 
         # Start webview (blocks until window is closed)
         webview.start()

@@ -37,7 +37,7 @@ CCG Gateway 是一个为多种 AI CLI 工具（Claude Code、Codex、Gemini）�
 
 #### 环境要求
 
-- Python 3.10+
+- Python 3.11+
 - Node.js 18+
 - pnpm
 - uv
@@ -77,13 +77,20 @@ pnpm install
 docker build -t ccg-gateway .
 
 # 启动容器
-docker run -d -p 7788:7788 -v ./data:/data --name ccg-gateway ccg-gateway
+docker run -d -p 7788:7788 -v ./data:/data -v ~/.claude:/root/.claude -v ~/.codex:/root/.codex -v ~/.gemini:/root/.gemini --name ccg-gateway ccg-gateway
 
 # 查看日志
 docker logs -f ccg-gateway
 
 # 停止容器
 docker stop ccg-gateway
+```
+
+如果使用 powershell 执行，启动容器的命令需要修改一下
+
+```PowerShell
+# 启动容器
+docker run -d -p 7788:7788 -v ./data:/data -v ${env:USERPROFILE}\.claude:/root/.claude -v ${env:USERPROFILE}\.codex:/root/.codex -v ${env:USERPROFILE}\.gemini:/root/.gemini --name ccg-gateway ccg-gateway
 ```
 
 #### 访问地址

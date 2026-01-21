@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import text
 
-from app.core.database import get_db
+from app.core.database import get_db, engine
 from app.schemas.schemas import (
     AllSettingsResponse, GatewaySettingsUpdate, TimeoutSettingsUpdate,
     CliSettingsUpdate, CliType, SystemStatusResponse
@@ -60,3 +61,24 @@ async def get_system_status():
         uptime=get_uptime(),
         version=app_settings.VERSION
     )
+
+
+@router.get("/db/vacuum-status")
+async def get_vacuum_status(db: AsyncSession = Depends(get_db)):
+    async with engine.begin() as conn:
+        result = await conn.execute(text("PRAGMA auto_vacuum"))
+        mode = result.scalar()
+        mode_names = {0: "NONE", 1: "FULL", 2: "INCREMENTAL"}
+        return {"mode": mode, "mode_name": mode_names.get(mode, "UNKNOWN")}
+
+
+@router.post("/db/migrate")
+async def migrate_database(db: AsyncSession = Depends(get_db)):
+    async with engine.begin() as conn:
+        result = await conn.execute(text("PRAGMA auto_vacuum"))
+        current_mode = result.scalar()
+        if current_mode == 1:
+            return {"message": "Already in FULL mode"}
+        await conn.execute(text("PRAGMA auto_vacuum = FULL"))
+        await conn.execute(text("VACUUM"))
+        return {"message": "Database migrated to FULL auto_vacuum mode"}

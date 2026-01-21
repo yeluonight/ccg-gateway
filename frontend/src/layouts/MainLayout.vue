@@ -1,5 +1,6 @@
 <template>
   <el-container class="layout-container">
+    <DatabaseMigrationDialog v-model="showMigrationDialog" @done="onMigrationDone" />
     <el-aside width="200px" class="sidebar">
       <div class="logo">
         <h2>CCG Gateway</h2>
@@ -60,9 +61,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { useDashboardStore } from '@/stores/dashboard'
+import { settingsApi } from '@/api/settings'
+import DatabaseMigrationDialog from '@/components/DatabaseMigrationDialog.vue'
 
 const route = useRoute()
 const dashboardStore = useDashboardStore()
@@ -91,8 +94,29 @@ function formatUptime(seconds: number): string {
   return `${secs}s`
 }
 
-onMounted(() => {
+const showMigrationDialog = ref(false)
+
+async function checkVacuumStatus() {
+  if (localStorage.getItem('db-migration-dismissed')) {
+    return
+  }
+  try {
+    const res = await settingsApi.getVacuumStatus()
+    if (res.data.mode !== 1) {
+      showMigrationDialog.value = true
+    }
+  } catch {
+    // 忽略错误
+  }
+}
+
+function onMigrationDone() {
+  // 优化完成，可选：刷新页面或重载状态
+}
+
+onMounted(async () => {
   dashboardStore.fetchStatus()
+  await checkVacuumStatus()
 })
 </script>
 

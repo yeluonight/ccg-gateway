@@ -22,7 +22,7 @@ def setup_logging():
 
 
 setup_logging()
-from app.core.database import init_db, close_db
+from app.core.database import init_db, init_log_db, close_db
 from app.core.uptime import init_start_time
 from app.api.admin import admin_router
 from app.api.proxy import proxy_router
@@ -36,6 +36,7 @@ frontend_dist = get_frontend_dist()
 async def lifespan(app: FastAPI):
     init_start_time()
     await init_db()
+    await init_log_db()
     await init_default_data()
     try:
         yield

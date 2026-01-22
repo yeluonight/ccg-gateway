@@ -184,7 +184,6 @@ class PromptResponse(BaseModel):
 # Stats Schemas
 class DailyStatsResponse(BaseModel):
     usage_date: str
-    provider_id: int
     provider_name: str
     cli_type: str
     request_count: int
@@ -195,7 +194,6 @@ class DailyStatsResponse(BaseModel):
 
 
 class ProviderStatsResponse(BaseModel):
-    provider_id: int
     provider_name: str
     cli_type: str
     total_requests: int

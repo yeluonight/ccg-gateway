@@ -146,7 +146,6 @@ export interface PromptUpdate {
 // Stats types
 export interface DailyStats {
   usage_date: string
-  provider_id: number
   provider_name: string
   cli_type: string
   request_count: number
@@ -157,7 +156,6 @@ export interface DailyStats {
 }
 
 export interface ProviderStats {
-  provider_id: number
   provider_name: string
   cli_type: string
   total_requests: number

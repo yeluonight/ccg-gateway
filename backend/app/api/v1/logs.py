@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 
-from app.core.database import get_db
+from app.core.database import get_db, get_log_db
 from app.schemas.schemas import (
     RequestLogListResponse, RequestLogListItem, RequestLogDetail,
     SystemLogListResponse, SystemLogItem, ClearLogsRequest,
@@ -34,9 +34,10 @@ async def list_request_logs(
     cli_type: Optional[str] = None,
     provider_name: Optional[str] = None,
     success: Optional[bool] = None,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    log_db: AsyncSession = Depends(get_log_db)
 ):
-    service = LogService(db)
+    service = LogService(db, log_db)
     logs, total = await service.list_request_logs(page, page_size, cli_type, provider_name, success)
     items = [
         RequestLogListItem(
@@ -58,8 +59,12 @@ async def list_request_logs(
 
 
 @router.get("/requests/{log_id}", response_model=RequestLogDetail)
-async def get_request_log(log_id: int, db: AsyncSession = Depends(get_db)):
-    service = LogService(db)
+async def get_request_log(
+    log_id: int,
+    db: AsyncSession = Depends(get_db),
+    log_db: AsyncSession = Depends(get_log_db)
+):
+    service = LogService(db, log_db)
     log = await service.get_request_log(log_id)
     if not log:
         from fastapi import HTTPException
@@ -93,8 +98,12 @@ async def get_request_log(log_id: int, db: AsyncSession = Depends(get_db)):
 
 
 @router.delete("/requests")
-async def clear_request_logs(data: ClearLogsRequest, db: AsyncSession = Depends(get_db)):
-    service = LogService(db)
+async def clear_request_logs(
+    data: ClearLogsRequest,
+    db: AsyncSession = Depends(get_db),
+    log_db: AsyncSession = Depends(get_log_db)
+):
+    service = LogService(db, log_db)
     count = await service.clear_request_logs(data.before_timestamp)
     return {"message": f"Cleared {count} request logs"}
 
@@ -106,9 +115,10 @@ async def list_system_logs(
     level: Optional[str] = None,
     event_type: Optional[str] = None,
     provider_name: Optional[str] = None,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    log_db: AsyncSession = Depends(get_log_db)
 ):
-    service = LogService(db)
+    service = LogService(db, log_db)
     logs, total = await service.list_system_logs(page, page_size, level, event_type, provider_name)
     items = [
         SystemLogItem(
@@ -125,7 +135,11 @@ async def list_system_logs(
 
 
 @router.delete("/system")
-async def clear_system_logs(data: ClearLogsRequest, db: AsyncSession = Depends(get_db)):
-    service = LogService(db)
+async def clear_system_logs(
+    data: ClearLogsRequest,
+    db: AsyncSession = Depends(get_db),
+    log_db: AsyncSession = Depends(get_log_db)
+):
+    service = LogService(db, log_db)
     count = await service.clear_system_logs(data.before_timestamp)
     return {"message": f"Cleared {count} system logs"}

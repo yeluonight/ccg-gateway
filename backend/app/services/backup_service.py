@@ -10,6 +10,7 @@ from app.core.config import DATA_DIR
 from app.core.database import engine
 from app.models.models import WebdavSettings
 
+# 只备份配置数据库，日志数据库 (ccg_logs.db) 不参与备份
 DB_FILE = DATA_DIR / "ccg_gateway.db"
 BACKUP_DIR = DATA_DIR / "backups"
 WEBDAV_REMOTE_PATH = "/ccg-gateway-backup"

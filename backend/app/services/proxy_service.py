@@ -53,12 +53,13 @@ async def get_http_client() -> httpx.AsyncClient:
 
 
 class ProxyService:
-    def __init__(self, db: AsyncSession, routing_service: RoutingService):
+    def __init__(self, db: AsyncSession, log_db: AsyncSession, routing_service: RoutingService):
         self.db = db
+        self.log_db = log_db
         self.routing_service = routing_service
-        self.provider_service = ProviderService(db)
-        self.stats_service = StatsService(db)
-        self.log_service = LogService(db)
+        self.provider_service = ProviderService(db, log_db)
+        self.stats_service = StatsService(log_db)
+        self.log_service = LogService(db, log_db)
 
     def _apply_model_mapping(self, provider: Provider, body: bytes) -> Tuple[bytes, Optional[str], Optional[str]]:
         """Apply model mapping to request body. Returns (new_body, original_model, final_model).
@@ -257,7 +258,7 @@ class ProxyService:
                     f"  Elapsed: {elapsed}ms\n"
                 )
             await self.provider_service.record_failure(provider.id)
-            await self.stats_service.record_request(provider.id, cli_type, False, 0, 0)
+            await self.stats_service.record_request(provider.name, cli_type, False, 0, 0)
             # Record error log
             if debug_log:
                 try:
@@ -299,7 +300,7 @@ class ProxyService:
             if debug_log:
                 logger.info(f"\n[DEBUG] === ERROR RESPONSE ===\n  Body: {_truncate_body(error_body)}\n  Elapsed: {elapsed}ms\n")
             await self.provider_service.record_failure(provider.id)
-            await self.stats_service.record_request(provider.id, cli_type, False, 0, 0)
+            await self.stats_service.record_request(provider.name, cli_type, False, 0, 0)
             # Record error log
             if debug_log:
                 try:
@@ -380,10 +381,10 @@ class ProxyService:
                     self._parse_sse_usage(full_response, cli_type, usage)
                 if success:
                     await self.provider_service.record_success(provider.id)
-                    await self.stats_service.record_request(provider.id, cli_type, True, usage["input"], usage["output"])
+                    await self.stats_service.record_request(provider.name, cli_type, True, usage["input"], usage["output"])
                 else:
                     await self.provider_service.record_failure(provider.id)
-                    await self.stats_service.record_request(provider.id, cli_type, False, 0, 0)
+                    await self.stats_service.record_request(provider.name, cli_type, False, 0, 0)
 
                 if debug_log:
                     ttfb = (first_byte_time - start_time) * 1000 if first_byte_time else 0
@@ -461,10 +462,10 @@ class ProxyService:
             success = response.status_code < 400
             if success:
                 await self.provider_service.record_success(provider.id)
-                await self.stats_service.record_request(provider.id, cli_type, True, usage["input"], usage["output"])
+                await self.stats_service.record_request(provider.name, cli_type, True, usage["input"], usage["output"])
             else:
                 await self.provider_service.record_failure(provider.id)
-                await self.stats_service.record_request(provider.id, cli_type, False, 0, 0)
+                await self.stats_service.record_request(provider.name, cli_type, False, 0, 0)
 
             # Record log
             if debug_log:
@@ -515,7 +516,7 @@ class ProxyService:
                 except:
                     pass
             await self.provider_service.record_failure(provider.id)
-            await self.stats_service.record_request(provider.id, cli_type, False, 0, 0)
+            await self.stats_service.record_request(provider.name, cli_type, False, 0, 0)
             raise HTTPException(status_code=504, detail="Upstream timeout")
 
     def _detect_cli_type(self, request: Request, path: str) -> str:

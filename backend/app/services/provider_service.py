@@ -20,10 +20,10 @@ async def _get_provider_lock(provider_id: int) -> asyncio.Lock:
         return _provider_locks[provider_id]
 
 
-async def _create_system_log(db: AsyncSession, level: str, event_type: str, message: str, provider_name: str = None, details: dict = None):
+async def _create_system_log(log_db: AsyncSession, level: str, event_type: str, message: str, provider_name: str = None, details: dict = None):
     """Helper to create system log without circular import."""
     import json
-    from app.models.models import SystemLog
+    from app.models.log_models import SystemLog
     log = SystemLog(
         created_at=int(time.time()),
         level=level,
@@ -32,12 +32,13 @@ async def _create_system_log(db: AsyncSession, level: str, event_type: str, mess
         message=message,
         details=json.dumps(details, ensure_ascii=False) if details else None
     )
-    db.add(log)
+    log_db.add(log)
 
 
 class ProviderService:
-    def __init__(self, db: AsyncSession):
+    def __init__(self, db: AsyncSession, log_db: AsyncSession = None):
         self.db = db
+        self.log_db = log_db
 
     async def list_providers(self, cli_type: Optional[str] = None) -> List[ProviderResponse]:
         now = int(time.time())
@@ -238,13 +239,19 @@ class ProviderService:
         if provider and provider.consecutive_failures > 0:
             previous_failures = provider.consecutive_failures
             provider.consecutive_failures = 0
-            await _create_system_log(
-                self.db, "INFO", "失败重置",
-                f"服务商 '{provider.name}' 失败计数已重置 (原为 {previous_failures}) - 请求成功",
-                provider_name=provider.name,
-                details={"previous_failures": previous_failures}
-            )
             await self.db.commit()
+            # 日志写入失败不影响主流程
+            if self.log_db:
+                try:
+                    await _create_system_log(
+                        self.log_db, "INFO", "失败重置",
+                        f"服务商 '{provider.name}' 失败计数已重置 (原为 {previous_failures}) - 请求成功",
+                        provider_name=provider.name,
+                        details={"previous_failures": previous_failures}
+                    )
+                    await self.log_db.commit()
+                except Exception:
+                    pass
 
     async def record_failure(self, provider_id: int):
         lock = await _get_provider_lock(provider_id)
@@ -267,24 +274,11 @@ class ProviderService:
 
             new_failures = failures + 1
 
-            await _create_system_log(
-                self.db, "WARN", "服务商失败",
-                f"服务商 '{name}' 失败，连续失败次数: {new_failures}/{threshold}",
-                provider_name=name,
-                details={"consecutive_failures": new_failures, "threshold": threshold}
-            )
-
             if new_failures >= threshold:
                 blacklist_until = now + blacklist_minutes * 60
                 await self.db.execute(
                     text("UPDATE providers SET consecutive_failures = 0, blacklisted_until = :until WHERE id = :id"),
                     {"until": blacklist_until, "id": provider_id}
-                )
-                await _create_system_log(
-                    self.db, "ERROR", "服务商黑名单",
-                    f"服务商 '{name}' 已加入黑名单 {blacklist_minutes} 分钟 (达到阈值 {threshold})",
-                    provider_name=name,
-                    details={"blacklist_minutes": blacklist_minutes, "blacklisted_until": blacklist_until}
                 )
             else:
                 await self.db.execute(
@@ -293,3 +287,23 @@ class ProviderService:
                 )
 
             await self.db.commit()
+
+            # 日志写入失败不影响主流程
+            if self.log_db:
+                try:
+                    await _create_system_log(
+                        self.log_db, "WARN", "服务商失败",
+                        f"服务商 '{name}' 失败，连续失败次数: {new_failures}/{threshold}",
+                        provider_name=name,
+                        details={"consecutive_failures": new_failures, "threshold": threshold}
+                    )
+                    if new_failures >= threshold:
+                        await _create_system_log(
+                            self.log_db, "ERROR", "服务商黑名单",
+                            f"服务商 '{name}' 已加入黑名单 {blacklist_minutes} 分钟 (达到阈值 {threshold})",
+                            provider_name=name,
+                            details={"blacklist_minutes": blacklist_minutes, "blacklisted_until": blacklist_until}
+                        )
+                    await self.log_db.commit()
+                except Exception:
+                    pass

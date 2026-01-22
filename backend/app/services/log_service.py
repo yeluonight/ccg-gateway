@@ -1,15 +1,17 @@
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, delete, desc
+from sqlalchemy import select, delete, desc, func
 from typing import List, Optional
 import time
 import json
 
-from app.models.models import RequestLog, SystemLog, GatewaySettings
+from app.models.log_models import RequestLog, SystemLog
+from app.models.models import GatewaySettings
 
 
 class LogService:
-    def __init__(self, db: AsyncSession):
-        self.db = db
+    def __init__(self, db: AsyncSession, log_db: AsyncSession):
+        self.db = db  # 配置数据库
+        self.log_db = log_db  # 日志数据库
 
     async def is_logging_enabled(self) -> bool:
         result = await self.db.execute(select(GatewaySettings).where(GatewaySettings.id == 1))
@@ -67,8 +69,8 @@ class LogService:
             response_body=response_body,
             error_message=error_message
         )
-        self.db.add(log)
-        await self.db.commit()
+        self.log_db.add(log)
+        await self.log_db.commit()
         return log
 
     async def create_system_log(
@@ -87,8 +89,8 @@ class LogService:
             message=message,
             details=json.dumps(details, ensure_ascii=False) if details else None
         )
-        self.db.add(log)
-        await self.db.commit()
+        self.log_db.add(log)
+        await self.log_db.commit()
         return log
 
     async def list_request_logs(
@@ -100,7 +102,7 @@ class LogService:
         success: Optional[bool] = None
     ) -> tuple[List[RequestLog], int]:
         query = select(RequestLog)
-        count_query = select(RequestLog)
+        count_query = select(func.count(RequestLog.id))
 
         if cli_type:
             query = query.where(RequestLog.cli_type == cli_type)
@@ -113,19 +115,19 @@ class LogService:
             count_query = count_query.where(RequestLog.success == (1 if success else 0))
 
         # Count total
-        count_result = await self.db.execute(count_query)
-        total = len(count_result.scalars().all())
+        count_result = await self.log_db.execute(count_query)
+        total = count_result.scalar() or 0
 
         # Get paginated results
         query = query.order_by(desc(RequestLog.created_at), desc(RequestLog.id))
         query = query.offset((page - 1) * page_size).limit(page_size)
-        result = await self.db.execute(query)
+        result = await self.log_db.execute(query)
         logs = result.scalars().all()
 
         return list(logs), total
 
     async def get_request_log(self, log_id: int) -> Optional[RequestLog]:
-        result = await self.db.execute(select(RequestLog).where(RequestLog.id == log_id))
+        result = await self.log_db.execute(select(RequestLog).where(RequestLog.id == log_id))
         return result.scalar_one_or_none()
 
     async def list_system_logs(
@@ -137,7 +139,7 @@ class LogService:
         provider_name: Optional[str] = None
     ) -> tuple[List[SystemLog], int]:
         query = select(SystemLog)
-        count_query = select(SystemLog)
+        count_query = select(func.count(SystemLog.id))
 
         if level:
             query = query.where(SystemLog.level == level)
@@ -150,33 +152,33 @@ class LogService:
             count_query = count_query.where(SystemLog.provider_name == provider_name)
 
         # Count total
-        count_result = await self.db.execute(count_query)
-        total = len(count_result.scalars().all())
+        count_result = await self.log_db.execute(count_query)
+        total = count_result.scalar() or 0
 
         # Get paginated results
         query = query.order_by(desc(SystemLog.created_at), desc(SystemLog.id))
         query = query.offset((page - 1) * page_size).limit(page_size)
-        result = await self.db.execute(query)
+        result = await self.log_db.execute(query)
         logs = result.scalars().all()
 
         return list(logs), total
 
     async def clear_request_logs(self, before_timestamp: Optional[int] = None) -> int:
         if before_timestamp:
-            result = await self.db.execute(
+            result = await self.log_db.execute(
                 delete(RequestLog).where(RequestLog.created_at < before_timestamp)
             )
         else:
-            result = await self.db.execute(delete(RequestLog))
-        await self.db.commit()
+            result = await self.log_db.execute(delete(RequestLog))
+        await self.log_db.commit()
         return result.rowcount
 
     async def clear_system_logs(self, before_timestamp: Optional[int] = None) -> int:
         if before_timestamp:
-            result = await self.db.execute(
+            result = await self.log_db.execute(
                 delete(SystemLog).where(SystemLog.created_at < before_timestamp)
             )
         else:
-            result = await self.db.execute(delete(SystemLog))
-        await self.db.commit()
+            result = await self.log_db.execute(delete(SystemLog))
+        await self.log_db.commit()
         return result.rowcount

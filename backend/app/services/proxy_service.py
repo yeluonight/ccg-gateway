@@ -16,6 +16,7 @@ from app.services.provider_service import ProviderService
 from app.services.stats_service import StatsService
 from app.services.log_service import LogService
 from app.models.models import Provider, TimeoutSettings, GatewaySettings
+from app.core.database import async_log_session_maker
 from sqlalchemy import select
 
 logger = logging.getLogger(__name__)
@@ -373,51 +374,71 @@ class ProxyService:
                 logger.error(f"Streaming error for provider {provider.name}: {e}")
                 yield f'event: error\ndata: {{"type":"error","message":"{str(e)}"}}\n\n'.encode()
             finally:
-                await response.aclose()
+                # Capture data needed for logging before any async operations
                 elapsed = int((time.time() - start_time) * 1000)
-                # Re-parse usage from complete response (chunks may have been split)
-                if collected_chunks and (usage["input"] == 0 and usage["output"] == 0):
-                    full_response = b"".join(collected_chunks)
-                    self._parse_sse_usage(full_response, cli_type, usage)
-                if success:
-                    await self.provider_service.record_success(provider.id)
-                    await self.stats_service.record_request(provider.name, cli_type, True, usage["input"], usage["output"])
-                else:
-                    await self.provider_service.record_failure(provider.id)
-                    await self.stats_service.record_request(provider.name, cli_type, False, 0, 0)
+                # Determine success: either iteration completed OR we received data with a valid status code
+                # This handles cases where client disconnects early but server response was successful
+                is_http_success = response.status_code < 400
+                has_data = total_bytes > 0
+                actual_success = success or (is_http_success and has_data)
 
+                log_data = {
+                    'success': actual_success,
+                    'elapsed_ms': elapsed,
+                    'usage': dict(usage),
+                    'total_bytes': total_bytes,
+                    'collected_chunks': list(collected_chunks),
+                    'first_byte_time': first_byte_time,
+                    'error_msg': error_msg,
+                    'provider_name': provider.name,
+                }
+
+                # Close response (may be cancelled, but that's ok)
+                try:
+                    await response.aclose()
+                except asyncio.CancelledError:
+                    pass
+
+                # Re-parse usage from complete response (chunks may have been split)
+                if log_data['collected_chunks'] and (log_data['usage']['input'] == 0 and log_data['usage']['output'] == 0):
+                    full_response = b"".join(log_data['collected_chunks'])
+                    self._parse_sse_usage(full_response, cli_type, log_data['usage'])
+
+                # Record stats (may be cancelled, but that's ok)
+                try:
+                    if log_data['success']:
+                        await self.provider_service.record_success(provider.id)
+                        await self.stats_service.record_request(provider.name, cli_type, True, log_data['usage']['input'], log_data['usage']['output'])
+                    else:
+                        await self.provider_service.record_failure(provider.id)
+                        await self.stats_service.record_request(provider.name, cli_type, False, 0, 0)
+                except asyncio.CancelledError:
+                    pass
+
+                # Record log - this is the critical part that must execute
                 if debug_log:
-                    ttfb = (first_byte_time - start_time) * 1000 if first_byte_time else 0
-                    logger.info(
-                        f"\n[DEBUG] === FORWARD RESULT (streaming) ===\n"
-                        f"  Provider: {provider.name}\n"
-                        f"  Success: {success}\n"
-                        f"  Input Tokens: {usage['input']}\n"
-                        f"  Output Tokens: {usage['output']}\n"
-                        f"  Total Bytes: {total_bytes}\n"
-                        f"  TTFB: {ttfb:.2f}ms\n"
-                        f"  Total Elapsed: {elapsed}ms\n"
-                    )
-                    # Record streaming log
                     try:
-                        response_body = b"".join(collected_chunks).decode("utf-8", errors="replace")
-                        await self.log_service.create_request_log(
-                            **log_ctx,
-                            success=success,
-                            status_code=response.status_code,
-                            elapsed_ms=elapsed,
-                            input_tokens=usage["input"],
-                            output_tokens=usage["output"],
-                            provider_status=response.status_code,
-                            provider_headers=dict(response.headers),
-                            provider_body=f"[streaming] {total_bytes} bytes",
-                            response_status=response.status_code,
-                            response_headers=dict(resp_headers),
-                            response_body=response_body if len(response_body) < 100000 else f"[streaming] {total_bytes} bytes",
-                            error_message=error_msg
-                        )
-                    except:
-                        pass
+                        # Use shield to protect log recording from cancellation
+                        await asyncio.shield(self._record_streaming_log(
+                            log_ctx=log_ctx,
+                            provider=provider,
+                            response=response,
+                            resp_headers=resp_headers,
+                            success=log_data['success'],
+                            usage=log_data['usage'],
+                            elapsed_ms=log_data['elapsed_ms'],
+                            first_byte_time=log_data['first_byte_time'],
+                            start_time=start_time,
+                            total_bytes=log_data['total_bytes'],
+                            collected_chunks=log_data['collected_chunks'],
+                            cli_type=cli_type,
+                            error_msg=log_data['error_msg']
+                        ))
+                    except asyncio.CancelledError:
+                        # Log that recording was cancelled, but don't fail the response
+                        logger.warning(f"Log recording was cancelled for provider {provider.name}")
+                    except Exception as e:
+                        logger.error(f"Failed to record streaming log for provider {provider.name}: {e}")
 
         return StreamingResponse(
             stream_generator(),
@@ -425,6 +446,47 @@ class ProxyService:
             media_type=response.headers.get("content-type", "text/event-stream"),
             headers=resp_headers
         )
+
+    async def _record_streaming_log(
+        self, log_ctx: dict, provider, response, resp_headers: dict,
+        success: bool, usage: dict, elapsed_ms: int,
+        first_byte_time: Optional[float], start_time: float,
+        total_bytes: int, collected_chunks: list, cli_type: str, error_msg: Optional[str]
+    ):
+        """Record streaming log with a new database session (since original may be closed)."""
+        ttfb = (first_byte_time - start_time) * 1000 if first_byte_time else 0
+        logger.info(
+            f"\n{'='*60}\n"
+            f"[DEBUG] === FORWARD RESULT (streaming) ===\n"
+            f"  Provider: {provider.name}\n"
+            f"  Success: {success}\n"
+            f"  Input Tokens: {usage['input']}\n"
+            f"  Output Tokens: {usage['output']}\n"
+            f"  Total Bytes: {total_bytes}\n"
+            f"  TTFB: {ttfb:.2f}ms\n"
+            f"  Total Elapsed: {elapsed_ms}ms\n"
+            f"{'='*60}"
+        )
+        response_body = b"".join(collected_chunks).decode("utf-8", errors="replace")
+
+        # Create a new database session for logging (original may be closed)
+        async with async_log_session_maker() as new_log_db:
+            new_log_service = LogService(self.db, new_log_db)
+            await new_log_service.create_request_log(
+                **log_ctx,
+                success=success,
+                status_code=response.status_code,
+                elapsed_ms=elapsed_ms,
+                input_tokens=usage["input"],
+                output_tokens=usage["output"],
+                provider_status=response.status_code,
+                provider_headers=dict(response.headers),
+                provider_body=f"[streaming] {total_bytes} bytes",
+                response_status=response.status_code,
+                response_headers=dict(resp_headers),
+                response_body=response_body if len(response_body) < 100000 else f"[streaming] {total_bytes} bytes",
+                error_message=error_msg
+            )
 
     async def _forward_non_streaming(
         self, provider: Provider, url: str, method: str,

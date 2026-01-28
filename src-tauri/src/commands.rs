@@ -1882,10 +1882,580 @@ pub async fn get_provider_stats(
 fn get_cli_base_dir(cli_type: &str) -> std::path::PathBuf {
     let home = dirs::home_dir().unwrap_or_default();
     match cli_type {
-        "codex" => home.join(".codex").join("tmp"),
-        "gemini" => home.join(".gemini").join("tmp"),
+        "codex" => home.join(".codex"),
+        "gemini" => home.join(".gemini"),
         _ => home.join(".claude"),
     }
+}
+
+// Extract cwd from Codex session file
+fn extract_codex_cwd(file_path: &std::path::Path) -> Option<String> {
+    use std::io::{BufRead, BufReader};
+    let file = std::fs::File::open(file_path).ok()?;
+    let reader = BufReader::new(file);
+    
+    for line in reader.lines().flatten() {
+        if let Ok(data) = serde_json::from_str::<serde_json::Value>(&line) {
+            if data.get("type").and_then(|t| t.as_str()) == Some("session_meta") {
+                if let Some(cwd) = data.get("payload")
+                    .and_then(|p| p.get("cwd"))
+                    .and_then(|c| c.as_str()) {
+                    return Some(cwd.to_string());
+                }
+            }
+        }
+    }
+    None
+}
+
+// Handle Codex projects (group sessions by cwd)
+fn get_codex_projects(sessions_dir: std::path::PathBuf, page: i64, page_size: i64) -> Result<PaginatedProjects> {
+    use std::collections::HashMap;
+    use walkdir::WalkDir;
+    
+    if !sessions_dir.exists() {
+        return Ok(PaginatedProjects {
+            items: vec![],
+            total: 0,
+            page,
+            page_size,
+        });
+    }
+    
+    // Group sessions by cwd (search recursively in date subdirectories)
+    let mut project_map: HashMap<String, Vec<(std::path::PathBuf, std::fs::Metadata)>> = HashMap::new();
+    
+    // Use WalkDir to recursively search all subdirectories
+    for entry in WalkDir::new(&sessions_dir)
+        .follow_links(false)
+        .into_iter()
+        .filter_map(|e| e.ok())
+    {
+        let path = entry.path();
+        if path.is_file() {
+            let filename = path.file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("");
+            
+            if filename.starts_with("rollout-") && filename.ends_with(".jsonl") {
+                if let Some(cwd) = extract_codex_cwd(path) {
+                    if let Ok(meta) = path.metadata() {
+                        project_map.entry(cwd).or_insert_with(Vec::new).push((path.to_path_buf(), meta));
+                    }
+                }
+            }
+        }
+    }
+    
+    // Build project list
+    let mut projects_data: Vec<(String, String, usize, i64, f64)> = Vec::new();
+    for (cwd, files) in project_map {
+        let total_size: i64 = files.iter().map(|(_, m)| m.len() as i64).sum();
+        let last_modified = files.iter()
+            .filter_map(|(_, m)| m.modified().ok())
+            .map(|t| t.duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs_f64()).unwrap_or(0.0))
+            .max_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+            .unwrap_or(0.0);
+        
+        let display_name = std::path::Path::new(&cwd)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("Unknown")
+            .to_string();
+        
+        projects_data.push((cwd.clone(), display_name, files.len(), total_size, last_modified));
+    }
+    
+    // Sort by last_modified descending
+    projects_data.sort_by(|a, b| b.4.partial_cmp(&a.4).unwrap_or(std::cmp::Ordering::Equal));
+    
+    let total = projects_data.len() as i64;
+    let start = ((page - 1) * page_size) as usize;
+    let items: Vec<_> = projects_data.into_iter()
+        .skip(start)
+        .take(page_size as usize)
+        .map(|(cwd, display_name, session_count, total_size, last_modified)| ProjectInfo {
+            name: cwd.clone(),
+            display_name,
+            full_path: cwd,
+            session_count: session_count as i64,
+            total_size,
+            last_modified,
+        })
+        .collect();
+    
+    Ok(PaginatedProjects {
+        items,
+        total,
+        page,
+        page_size,
+    })
+}
+
+// Handle Gemini projects (from hash directories with chats subfolder)
+fn get_gemini_projects(tmp_dir: std::path::PathBuf, page: i64, page_size: i64) -> Result<PaginatedProjects> {
+    if !tmp_dir.exists() {
+        return Ok(PaginatedProjects {
+            items: vec![],
+            total: 0,
+            page,
+            page_size,
+        });
+    }
+    
+    let mut project_dirs: Vec<(std::path::PathBuf, f64)> = Vec::new();
+    
+    if let Ok(entries) = std::fs::read_dir(&tmp_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path.is_dir() {
+                continue;
+            }
+            
+            let name = path.file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("");
+            
+            // Check if it's a valid 64-char hex hash
+            if name.len() == 64 && name.chars().all(|c| c.is_ascii_hexdigit()) {
+                let chats_dir = path.join("chats");
+                if chats_dir.exists() {
+                    if let Ok(meta) = path.metadata() {
+                        if let Ok(mtime) = meta.modified() {
+                            let secs = mtime.duration_since(std::time::UNIX_EPOCH)
+                                .map(|d| d.as_secs_f64())
+                                .unwrap_or(0.0);
+                            project_dirs.push((path, secs));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    // Sort by last_modified descending
+    project_dirs.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    
+    let total = project_dirs.len() as i64;
+    let start = ((page - 1) * page_size) as usize;
+    let page_dirs: Vec<_> = project_dirs.into_iter().skip(start).take(page_size as usize).collect();
+    
+    let mut projects = Vec::new();
+    for (path, _) in page_dirs {
+        let hash_name = path.file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("");
+        
+        let chats_dir = path.join("chats");
+        let mut session_count = 0i64;
+        let mut total_size = 0i64;
+        let mut last_modified = 0f64;
+        
+        if let Ok(entries) = std::fs::read_dir(&chats_dir) {
+            for entry in entries.flatten() {
+                let session_path = entry.path();
+                if session_path.is_file() {
+                    let filename = session_path.file_name()
+                        .and_then(|n| n.to_str())
+                        .unwrap_or("");
+                    
+                    if filename.starts_with("session-") && filename.ends_with(".json") {
+                        session_count += 1;
+                        if let Ok(meta) = session_path.metadata() {
+                            total_size += meta.len() as i64;
+                            if let Ok(mtime) = meta.modified() {
+                                let secs = mtime.duration_since(std::time::UNIX_EPOCH)
+                                    .map(|d| d.as_secs_f64())
+                                    .unwrap_or(0.0);
+                                if secs > last_modified {
+                                    last_modified = secs;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        if session_count > 0 {
+            let display_name = format!("Project {}", &hash_name[..8]);
+            projects.push(ProjectInfo {
+                name: hash_name.to_string(),
+                display_name,
+                full_path: hash_name.to_string(),
+                session_count,
+                total_size,
+                last_modified,
+            });
+        }
+    }
+    
+    Ok(PaginatedProjects {
+        items: projects,
+        total,
+        page,
+        page_size,
+    })
+}
+
+// Handle Codex sessions (find by cwd)
+fn get_codex_sessions(project_name: &str, page: i64, page_size: i64) -> Result<PaginatedSessions> {
+    use std::io::{BufRead, BufReader};
+    use walkdir::WalkDir;
+    
+    let home = dirs::home_dir().unwrap_or_default();
+    let sessions_dir = home.join(".codex").join("sessions");
+    
+    if !sessions_dir.exists() {
+        return Ok(PaginatedSessions {
+            items: vec![],
+            total: 0,
+            page,
+            page_size,
+        });
+    }
+    
+    let mut session_files: Vec<(std::path::PathBuf, std::fs::Metadata)> = Vec::new();
+    
+    // Use WalkDir to recursively search all subdirectories
+    for entry in WalkDir::new(&sessions_dir)
+        .follow_links(false)
+        .into_iter()
+        .filter_map(|e| e.ok())
+    {
+        let path = entry.path();
+        if path.is_file() {
+            let filename = path.file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("");
+            
+            if filename.starts_with("rollout-") && filename.ends_with(".jsonl") {
+                if let Some(cwd) = extract_codex_cwd(path) {
+                    if cwd == project_name {
+                        if let Ok(meta) = path.metadata() {
+                            session_files.push((path.to_path_buf(), meta));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    // Sort by mtime descending
+    session_files.sort_by(|a, b| {
+        let a_mtime = a.1.modified().ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs_f64())
+            .unwrap_or(0.0);
+        let b_mtime = b.1.modified().ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs_f64())
+            .unwrap_or(0.0);
+        b_mtime.partial_cmp(&a_mtime).unwrap_or(std::cmp::Ordering::Equal)
+    });
+    
+    let total = session_files.len() as i64;
+    let start = ((page - 1) * page_size) as usize;
+    let page_files: Vec<_> = session_files.into_iter().skip(start).take(page_size as usize).collect();
+    
+    let mut sessions = Vec::new();
+    for (path, meta) in page_files {
+        let session_id = path.file_stem()
+            .and_then(|n| n.to_str())
+            .unwrap_or("")
+            .to_string();
+        
+        let size = meta.len() as i64;
+        let mtime = meta.modified().ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs_f64())
+            .unwrap_or(0.0);
+        
+        // Try to extract first message
+        let mut first_message = String::new();
+        if let Ok(file) = std::fs::File::open(&path) {
+            let reader = BufReader::new(file);
+            for line in reader.lines().flatten() {
+                if let Ok(data) = serde_json::from_str::<serde_json::Value>(&line) {
+                    if data.get("type").and_then(|t| t.as_str()) == Some("event_msg") {
+                        if let Some(payload) = data.get("payload") {
+                            if payload.get("type").and_then(|t| t.as_str()) == Some("user_message") {
+                                if let Some(msg) = payload.get("message").and_then(|m| m.as_str()) {
+                                    first_message = msg.chars().take(200).collect();
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        sessions.push(SessionInfo {
+            session_id,
+            size,
+            mtime,
+            first_message,
+            git_branch: String::new(),
+            summary: String::new(),
+        });
+    }
+    
+    Ok(PaginatedSessions {
+        items: sessions,
+        total,
+        page,
+        page_size,
+    })
+}
+
+// Handle Gemini sessions
+fn get_gemini_sessions(project_name: &str, page: i64, page_size: i64) -> Result<PaginatedSessions> {
+    let home = dirs::home_dir().unwrap_or_default();
+    let chats_dir = home.join(".gemini").join("tmp").join(project_name).join("chats");
+    
+    if !chats_dir.exists() {
+        return Ok(PaginatedSessions {
+            items: vec![],
+            total: 0,
+            page,
+            page_size,
+        });
+    }
+    
+    let mut session_files: Vec<(std::path::PathBuf, std::fs::Metadata)> = Vec::new();
+    
+    if let Ok(entries) = std::fs::read_dir(&chats_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_file() {
+                let filename = path.file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("");
+                
+                if filename.starts_with("session-") && filename.ends_with(".json") {
+                    if let Ok(meta) = path.metadata() {
+                        session_files.push((path, meta));
+                    }
+                }
+            }
+        }
+    }
+    
+    // Sort by mtime descending
+    session_files.sort_by(|a, b| {
+        let a_mtime = a.1.modified().ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs_f64())
+            .unwrap_or(0.0);
+        let b_mtime = b.1.modified().ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs_f64())
+            .unwrap_or(0.0);
+        b_mtime.partial_cmp(&a_mtime).unwrap_or(std::cmp::Ordering::Equal)
+    });
+    
+    let total = session_files.len() as i64;
+    let start = ((page - 1) * page_size) as usize;
+    let page_files: Vec<_> = session_files.into_iter().skip(start).take(page_size as usize).collect();
+    
+    let mut sessions = Vec::new();
+    for (path, meta) in page_files {
+        let session_id = path.file_stem()
+            .and_then(|n| n.to_str())
+            .unwrap_or("")
+            .to_string();
+        
+        let size = meta.len() as i64;
+        let mtime = meta.modified().ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs_f64())
+            .unwrap_or(0.0);
+        
+        // Try to extract first message
+        let mut first_message = String::new();
+        if let Ok(content) = std::fs::read_to_string(&path) {
+            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
+                if let Some(messages) = json.get("messages").and_then(|m| m.as_array()) {
+                    for msg in messages {
+                        if msg.get("type").and_then(|t| t.as_str()) == Some("user") {
+                            if let Some(text) = msg.get("content").and_then(|c| c.as_str()) {
+                                first_message = text.chars().take(200).collect();
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        sessions.push(SessionInfo {
+            session_id,
+            size,
+            mtime,
+            first_message,
+            git_branch: String::new(),
+            summary: String::new(),
+        });
+    }
+    
+    Ok(PaginatedSessions {
+        items: sessions,
+        total,
+        page,
+        page_size,
+    })
+}
+
+// Parse Codex messages from JSONL file
+fn get_codex_messages(session_id: &str) -> Result<Vec<SessionMessage>> {
+    use std::io::{BufRead, BufReader};
+    use walkdir::WalkDir;
+    
+    let home = dirs::home_dir().unwrap_or_default();
+    let sessions_dir = home.join(".codex").join("sessions");
+    
+    // Find the session file by searching recursively
+    let mut session_file_path: Option<std::path::PathBuf> = None;
+    for entry in WalkDir::new(&sessions_dir)
+        .follow_links(false)
+        .into_iter()
+        .filter_map(|e| e.ok())
+    {
+        let path = entry.path();
+        if path.is_file() {
+            // Match session_id which is the stem (filename without extension)
+            if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                if stem == session_id {
+                    session_file_path = Some(path.to_path_buf());
+                    break;
+                }
+            }
+        }
+    }
+    
+    let session_file = session_file_path.ok_or_else(|| format!("Session file not found: {}", session_id))?;
+    
+    let file = std::fs::File::open(&session_file)
+        .map_err(|e| format!("Failed to open session file: {}", e))?;
+    let reader = BufReader::new(file);
+    
+    let mut messages = Vec::new();
+    
+    for line in reader.lines().flatten() {
+        if let Ok(data) = serde_json::from_str::<serde_json::Value>(&line) {
+            let msg_type = data.get("type").and_then(|t| t.as_str());
+            
+            // Only process response_item for structured messages
+            if msg_type == Some("response_item") {
+                if let Some(payload) = data.get("payload") {
+                    let item_type = payload.get("type").and_then(|t| t.as_str());
+                    let role = payload.get("role").and_then(|r| r.as_str());
+                    let timestamp = data.get("timestamp").and_then(|t| t.as_i64());
+                    
+                    // User messages
+                    if role == Some("user") && item_type == Some("message") {
+                        if let Some(content_list) = payload.get("content").and_then(|c| c.as_array()) {
+                            let text_parts: Vec<String> = content_list.iter()
+                                .filter_map(|item| {
+                                    if item.get("type").and_then(|t| t.as_str()) == Some("input_text") {
+                                        item.get("text").and_then(|t| t.as_str()).map(|s| s.to_string())
+                                    } else {
+                                        None
+                                    }
+                                })
+                                .collect();
+                            if !text_parts.is_empty() {
+                                messages.push(SessionMessage {
+                                    role: "user".to_string(),
+                                    content: text_parts.join("\n\n"),
+                                    timestamp,
+                                });
+                            }
+                        }
+                    }
+                    // Assistant messages
+                    else if role == Some("assistant") && item_type == Some("message") {
+                        if let Some(content_list) = payload.get("content").and_then(|c| c.as_array()) {
+                            let text_parts: Vec<String> = content_list.iter()
+                                .filter_map(|item| {
+                                    let item_type = item.get("type").and_then(|t| t.as_str());
+                                    if item_type == Some("output_text") || item_type == Some("text") {
+                                        item.get("text").and_then(|t| t.as_str()).map(|s| s.to_string())
+                                    } else {
+                                        None
+                                    }
+                                })
+                                .collect();
+                            if !text_parts.is_empty() {
+                                messages.push(SessionMessage {
+                                    role: "assistant".to_string(),
+                                    content: text_parts.join("\n\n"),
+                                    timestamp,
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    Ok(messages)
+}
+
+// Parse Claude Code messages from JSONL content
+fn parse_claude_jsonl(content: &str) -> Result<Vec<SessionMessage>> {
+    use std::io::{BufRead, BufReader};
+    
+    let mut messages = Vec::new();
+    let reader = BufReader::new(content.as_bytes());
+    
+    for line in reader.lines().flatten() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        
+        if let Ok(data) = serde_json::from_str::<serde_json::Value>(&line) {
+            let msg_type = data.get("type").and_then(|t| t.as_str());
+            
+            if msg_type == Some("user") || msg_type == Some("assistant") {
+                let role = msg_type.unwrap();
+                let timestamp = data.get("timestamp").and_then(|t| t.as_i64());
+                
+                if let Some(message) = data.get("message") {
+                    let content_val = message.get("content");
+                    
+                    let content = if let Some(arr) = content_val.and_then(|c| c.as_array()) {
+                        arr.iter()
+                            .filter_map(|item| {
+                                if item.get("type").and_then(|t| t.as_str()) == Some("text") {
+                                    item.get("text").and_then(|t| t.as_str())
+                                } else {
+                                    None
+                                }
+                            })
+                            .collect::<Vec<_>>()
+                            .join("\n")
+                    } else if let Some(text) = content_val.and_then(|c| c.as_str()) {
+                        text.to_string()
+                    } else {
+                        continue;
+                    };
+                    
+                    if !content.is_empty() && content != "Warmup" {
+                        messages.push(SessionMessage {
+                            role: role.to_string(),
+                            content,
+                            timestamp,
+                        });
+                    }
+                }
+            }
+        }
+    }
+    
+    Ok(messages)
 }
 
 // Session commands
@@ -1904,6 +2474,16 @@ pub async fn get_session_projects(
         "gemini" => base_dir.join("tmp"),
         _ => base_dir.join("projects"),
     };
+
+    // For Codex, we need special handling since sessions are not in project folders
+    if cli_type == "codex" {
+        return get_codex_projects(projects_dir, page, page_size);
+    }
+
+    // For Gemini, check if sessions are in hash directories with chats subfolder
+    if cli_type == "gemini" {
+        return get_gemini_projects(projects_dir, page, page_size);
+    }
 
     let mut projects = Vec::new();
 
@@ -1991,12 +2571,19 @@ pub async fn get_project_sessions(
     let page = page.unwrap_or(1).max(1);
     let page_size = page_size.unwrap_or(20).clamp(1, 100);
 
+    // Special handling for Codex
+    if cli_type == "codex" {
+        return get_codex_sessions(&project_name, page, page_size);
+    }
+
+    // Special handling for Gemini
+    if cli_type == "gemini" {
+        return get_gemini_sessions(&project_name, page, page_size);
+    }
+
+    // Claude Code default handling
     let base_dir = get_cli_base_dir(&cli_type);
-    let project_dir = match cli_type.as_str() {
-        "codex" => base_dir.join("sessions").join(&project_name),
-        "gemini" => base_dir.join("tmp").join(&project_name),
-        _ => base_dir.join("projects").join(&project_name),
-    };
+    let project_dir = base_dir.join("projects").join(&project_name);
 
     let mut sessions = Vec::new();
 
@@ -2094,16 +2681,26 @@ pub async fn get_session_messages(
     project_name: String,
     session_id: String,
 ) -> Result<Vec<SessionMessage>> {
+    // Special handling for Codex JSONL format
+    if cli_type == "codex" {
+        return get_codex_messages(&session_id);
+    }
+    
     let base_dir = get_cli_base_dir(&cli_type);
     let session_file = match cli_type.as_str() {
-        "codex" => base_dir.join("sessions").join(&project_name).join(format!("{}.json", session_id)),
-        "gemini" => base_dir.join("tmp").join(&project_name).join(format!("{}.json", session_id)),
-        _ => base_dir.join("projects").join(&project_name).join(format!("{}.json", session_id)),
+        "gemini" => base_dir.join("tmp").join(&project_name).join("chats").join(format!("{}.json", session_id)),
+        _ => base_dir.join("projects").join(&project_name).join(format!("{}.jsonl", session_id)),
     };
 
     let content = std::fs::read_to_string(&session_file)
         .map_err(|e| format!("Failed to read session file: {}", e))?;
 
+    // For Claude Code JSONL format
+    if cli_type == "claude_code" {
+        return parse_claude_jsonl(&content);
+    }
+    
+    // For Gemini JSON format
     let json: serde_json::Value = serde_json::from_str(&content)
         .map_err(|e| format!("Failed to parse session JSON: {}", e))?;
 
@@ -2116,7 +2713,7 @@ pub async fn get_session_messages(
             let msg_type = msg.get("type").and_then(|t| t.as_str()).unwrap_or("");
             let role = match msg_type {
                 "human" | "user" => "user",
-                "assistant" | "ai" => "assistant",
+                "assistant" | "ai" | "gemini" => "assistant",  // Add "gemini" type
                 _ => continue,
             };
 
@@ -2135,10 +2732,16 @@ pub async fn get_session_messages(
                 continue;
             };
 
+            let timestamp = msg.get("timestamp").and_then(|t| t.as_str()).map(|s| {
+                chrono::DateTime::parse_from_rfc3339(s)
+                    .ok()
+                    .map(|dt| dt.timestamp())
+            }).flatten();
+
             messages.push(SessionMessage {
                 role: role.to_string(),
                 content,
-                timestamp: None,
+                timestamp,
             });
         }
     } else if let Some(conversation) = json.as_object() {
@@ -2176,9 +2779,9 @@ pub async fn delete_session(
 ) -> Result<()> {
     let base_dir = get_cli_base_dir(&cli_type);
     let session_file = match cli_type.as_str() {
-        "codex" => base_dir.join("sessions").join(&project_name).join(format!("{}.json", session_id)),
-        "gemini" => base_dir.join("tmp").join(&project_name).join(format!("{}.json", session_id)),
-        _ => base_dir.join("projects").join(&project_name).join(format!("{}.json", session_id)),
+        "codex" => base_dir.join("sessions").join(format!("{}.jsonl", session_id)),
+        "gemini" => base_dir.join("tmp").join(&project_name).join("chats").join(format!("{}.json", session_id)),
+        _ => base_dir.join("projects").join(&project_name).join(format!("{}.jsonl", session_id)),
     };
 
     std::fs::remove_file(&session_file)
@@ -2193,8 +2796,38 @@ pub async fn delete_project(
     project_name: String,
 ) -> Result<()> {
     let base_dir = get_cli_base_dir(&cli_type);
+    
+    if cli_type == "codex" {
+        // For Codex, delete all session files matching the project cwd
+        use walkdir::WalkDir;
+        let sessions_dir = base_dir.join("sessions");
+        if sessions_dir.exists() {
+            // Use WalkDir to recursively search all subdirectories
+            for entry in WalkDir::new(&sessions_dir)
+                .follow_links(false)
+                .into_iter()
+                .filter_map(|e| e.ok())
+            {
+                let path = entry.path();
+                if path.is_file() {
+                    let filename = path.file_name()
+                        .and_then(|n| n.to_str())
+                        .unwrap_or("");
+                    if filename.starts_with("rollout-") && filename.ends_with(".jsonl") {
+                        if let Some(cwd) = extract_codex_cwd(path) {
+                            if cwd == project_name {
+                                let _ = std::fs::remove_file(path);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return Ok(());
+    }
+    
+    // For Claude Code and Gemini, delete the project directory
     let project_dir = match cli_type.as_str() {
-        "codex" => base_dir.join("sessions").join(&project_name),
         "gemini" => base_dir.join("tmp").join(&project_name),
         _ => base_dir.join("projects").join(&project_name),
     };

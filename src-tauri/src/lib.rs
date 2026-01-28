@@ -63,14 +63,11 @@ pub fn run() {
                 // Bind listener with better error handling
                 let listener = match tokio::net::TcpListener::bind(&addr).await {
                     Ok(listener) => {
-                        tracing::info!("✅ Gateway HTTP server listening on {}", addr);
+                        tracing::info!("Gateway HTTP server listening on {}", addr);
                         listener
                     }
                     Err(e) => {
-                        tracing::error!("❌ Failed to bind to {}: {}", addr, e);
-                        tracing::error!("   Hint: Port may already be in use. Try:");
-                        tracing::error!("   1. Close other instances: taskkill /F /IM ccg-gateway.exe");
-                        tracing::error!("   2. Change port: set GATEWAY_PORT=7789");
+                        tracing::error!("Failed to bind to {}: {}", addr, e);
                         panic!("Cannot bind to address {}: {}", addr, e);
                     }
                 };

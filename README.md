@@ -3,7 +3,7 @@
 <div align="center">
 <strong>智能 AI 模型网关 | 统一代理 · 负载均衡 · 故障转移</strong>
 
-[![Rust](https://img.shields.io/badge/Rust-1.83+-orange.svg)](https://www.rust-lang.org/)
+[![Rust](https://img.shields.io/badge/Rust-1.80+-orange.svg)](https://www.rust-lang.org/)
 [![Tauri](https://img.shields.io/badge/Tauri-2.0+-blue.svg)](https://tauri.app/)
 [![Vue](https://img.shields.io/badge/Vue-3.5+-brightgreen.svg)](https://vuejs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9+-blue.svg)](https://www.typescriptlang.org/)
@@ -12,29 +12,100 @@
 
 ## 📖 项目简介
 
-CCG Gateway 是一个为多种 AI CLI 工具（Claude Code、Codex、Gemini）设计的智能网关服务，提供统一的代理接口、智能负载均衡和自动故障转移能力。
+CCG Gateway 是一个为多种 AI CLI 工具（Claude Code、Codex、Gemini）设计的智能网关服务，提供统一的代理接口、智能负载均衡和自动故障转移能力。基于 Rust + Tauri 架构打造的桌面应用，性能更强、资源占用更低。
 
-**⚠️ 注意：当前版本已简化为仅支持桌面应用模式。** Docker/Web 模式的 HTTP API 实现已从前端移除。
+本项目根据作者自身的实际需求立项，开发过程中大量参考了已有开源项目，具体开源项目列表请见 [致谢](#-致谢)。
 
 ### 核心特性
 
 - 🎯 **智能路由** - 基于优先级和可用性的自动服务商选择
-- 🛡️ **故障转移** - 服务商状态异常，自动切换备用服务商
+- 🛡️ **故障转移** - 服务商状态异常，自动切换服务商
 - 🗺️ **模型映射** - 灵活的模型名称映射
-- 📊 **实时监控** - 完整的请求日志和统计分析
+- 📊 **日志统计** - 完整的请求日志和统计分析
 - ⚙️ **预设配置** - 一键注入全局配置、MCP、全局提示词等内容
-- 💾 **备份恢复** - 支持配置导出/导入,WebDAV 云备份
+- 🔄 **动态状态** - CLI网关、MCP、全局提示词等状态根据真实配置实时同步显示
+- 💾 **备份恢复** - 支持配置导出/导入，WebDAV 云备份自动同步
 
 ---
 
 ## 🚀 快速开始
 
-### 桌面应用（当前唯一支持模式）
+### 方式一：Releases 下载（推荐）
 
-1. 前往 [Releases](https://github.com/mos1128/ccg-gateway/releases) 下载安装包
-2. 运行 `CCG Gateway_0.x.x_x64-setup.exe`
-3. 启动应用，系统托盘会出现图标
-4. 点击托盘图标，选择\"打开管理面板\"
+1. 前往 [Releases](https://github.com/mos1128/ccg-gateway/releases) 页面下载最新版本
+2. 根据操作系统选择对应文件。
+
+### 方式二：从源码运行
+
+#### 环境要求
+
+- Rust 1.80+
+- Node.js 18+
+- pnpm
+
+#### 快速启动
+
+**方式 2-1：一键启动脚本（推荐）**
+
+脚本会自动启动前端开发服务器和 Tauri 后端。
+
+```bash
+# 启动开发环境（前端 + 后端）
+dev.bat
+```
+
+**方式 2-2：手动安装依赖并启动**
+
+```bash
+# 安装前端依赖
+cd frontend
+pnpm install
+
+# 启动前端开发服务器
+pnpm dev
+
+# 在另一个终端，启动 Tauri 后端
+cd src-tauri
+cargo run
+```
+
+---
+
+## ⚙️ 配置指南
+
+### 环境变量配置
+
+CCG Gateway 通过环境变量进行配置，所有配置项均有默认值，不配置即可直接使用。
+
+| 环境变量 | 默认值 | 说明 | 适用场景 |
+|---------|------|------|--------|
+| `GATEWAY_HOST` | `127.0.0.1` | 后端 API 服务器监听地址 | 打包后的应用 + 开发模式 |
+| `GATEWAY_PORT` | `7788` | 后端 API 服务器端口 | 打包后的应用 + 开发模式 |
+| `CCG_DATA_DIR` | `~/.ccg-gateway` | 数据存储目录 | 打包后的应用 + 开发模式 |
+
+#### 如何设置环境变量
+
+**Windows (PowerShell)**
+```powershell
+# 临时设置（当前终端会话有效）
+$env:GATEWAY_PORT="8080"
+$env:CCG_DATA_DIR="D:\ccg-data"
+
+# 永久设置（需要管理员权限）
+[System.Environment]::SetEnvironmentVariable('GATEWAY_PORT', '8080', 'User')
+```
+
+**macOS / Linux (Bash/Zsh)**
+```bash
+# 临时设置（当前终端会话有效）
+export GATEWAY_PORT=8080
+export CCG_DATA_DIR="/opt/ccg-data"
+
+# 永久设置（添加到 ~/.bashrc 或 ~/.zshrc）
+echo 'export GATEWAY_PORT=8080' >> ~/.bashrc
+echo 'export CCG_DATA_DIR="/opt/ccg-data"' >> ~/.bashrc
+source ~/.bashrc
+```
 
 ---
 
@@ -50,11 +121,11 @@ CCG Gateway 是一个为多种 AI CLI 工具（Claude Code、Codex、Gemini）�
 
 > **使用场景**
 >
-> 你订阅了三个服务商：服务商 A 每 4 小时重置额度，服务商 B 每 9 小时重置额度，服务商 C 按量计费。
+> 小帅订阅了三个服务商：服务商 A 每 4 小时重置额度，服务商 B 每 9 小时重置额度，服务商 C 按量计费。
 >
-> 配置服务商 A 拉黑时长 4 小时，服务商 B 拉黑时长 9 小时，将服务商 C **拖拽** 到最后作为兜底。
+> 为了保证可用性和性价比，小帅配置服务商 A 拉黑时长：4 小时，配置服务商 B 拉黑时长：9 小时，将服务商 C **拖拽** 到最后作为兜底。
 >
-> 网关会优先转发请求到服务商 A，不可用再转发到服务商 B，再不可用转发到服务商 C。
+> 网关会优先转发请求到服务商 A，服务商 A 不可用再转发到服务商 B，服务商 B 不可用再转发到服务商 C，当服务商 A 恢复后继续使用服务商 A。
 
 ### 2. 模型映射
 
@@ -64,15 +135,14 @@ CCG Gateway 是一个为多种 AI CLI 工具（Claude Code、Codex、Gemini）�
 
 > **使用场景**
 >
-> 服务商 A 的模型命名是 `cc-opus-4.5`，而其他服务商是 `claude-opus-4-5-20251101`。
+> 服务商 A 的模型命名是 `cc-opus-4.5`，而其他服务商的模型命名都遵循官方是 `claude-opus-4-5-20251101`，小帅就为服务商 A 配置了模型映射：
 >
-> 为服务商 A 配置模型映射：
 > ```
 > *opus* -> cc-opus-4.5
 > *haiku* -> cc-haiku-4.5
 > ```
 >
-> CLI 无需任何额外配置，所有请求都能正确转发。
+> 这样 CLI 无需任何额外配置，所有请求都能正确转发到服务商。
 
 ### 3. 配置管理
 
@@ -80,41 +150,33 @@ CCG Gateway 是一个为多种 AI CLI 工具（Claude Code、Codex、Gemini）�
 - **MCP 配置**：支持配置 MCP，一键应用到各个 CLI
 - **提示词预设**：支持配置常用提示词，一键应用到各个 CLI
 - **超时设置**：可配置流式和非流式请求的超时时间
-- **备份恢复**：支持配置的导出和导入，支持 WebDAV 备份
 
 ### 4. 请求日志与统计
 
 - **请求日志**：详细记录每个请求的完整信息（请求内容、响应内容、耗时、token 用量等）
-- **每日统计**：按日期汇总请求量和 token 消耗
 - **系统日志**：记录服务商切换、故障、拉黑等系统事件
+
+> **使用场景**
+>
+> 小帅求知欲强，想知道 CLI 工作时会发送哪些请求，请求的内容是什么。
 
 ### 5. 会话管理
 
-可查看各个 CLI 的所有会话记录。
+可查看各个 CLI 的所有会话。
+
+> **使用场景**
+>
+> 小帅求知欲强，想看每个会话 AI 思考了什么内容，调用了什么工具，工具的返回结果是什么。
 
 ---
 
-## 📁 部署文件说明
+## ✨ 一些巧思
 
-### 桌面应用发布
+### 复制服务商
 
-发布时需提供以下文件给用户：
+可能服务商为多个 CLI 都提供了服务，重复填也太麻烦了，单独开发复制功能意义也不大。
 
-| 文件 | 说明 |
-|------|------|
-| `CCG Gateway_0.x.x_x64-setup.exe` | NSIS 安装包(推荐,~4MB) |
-| `CCG Gateway_0.x.x_x64_en-US.msi` | MSI 安装包(备用,~7MB) |
-
----
-
-## 🖥️ 系统托盘
-
-桌面模式下，系统托盘提供以下功能：
-
-- **打开管理面板** - 打开 Web 管理界面
-- **启动/停止服务** - 控制网关服务状态
-- **查看日志** - 查看系统运行日志
-- **退出** - 完全退出应用
+于是产生了一个可以作为机制的 bug：小帅先添加任意一个 CLI 的服务商，然后点击编辑，再将弹窗关闭。切换到另外一个 CLI 的配置 Tab，点击添加服务商。发现原本的内容居然还在，直接保存就好啦。
 
 ---
 
@@ -128,23 +190,15 @@ CCG Gateway 是一个为多种 AI CLI 工具（Claude Code、Codex、Gemini）�
 4. 推送到分支 (`git push origin feature/AmazingFeature`)
 5. 开启 Pull Request
 
-开发者请参考 [DEVELOPER.md](DEVELOPER.md)。
-
 ---
 
 ## 🙏 致谢
 
-感谢各开源项目的启发：
+感谢各开源作者的贡献：
 
 - [cc-switch](https://github.com/farion1231/cc-switch) - A cross-platform desktop All-in-One assistant tool for Claude Code, Codex & Gemini CLI.
 - [coding-tool](https://github.com/CooperJiang/coding-tool) - claudecode|codex|gemini cli 增强工具.
 - [code-switch-R](https://github.com/Rogers-F/code-switch-R) - Claude Code & Codex 多供应商代理与管理工具
-
----
-
-## 📄 许可证
-
-[MIT License](LICENSE)
 
 ---
 

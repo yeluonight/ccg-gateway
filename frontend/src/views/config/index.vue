@@ -165,9 +165,13 @@ async function handleExportLocal() {
     const link = document.createElement('a')
     link.href = url
     link.download = `ccg_gateway_${new Date().toISOString().slice(0, 10)}.db`
+    document.body.appendChild(link)
     link.click()
+    document.body.removeChild(link)
     window.URL.revokeObjectURL(url)
-    ElMessage.success('导出成功')
+    ElMessage.success('导出成功（默认保存至下载文件夹）')
+  } catch (error: any) {
+    ElMessage.error(error?.message || '导出失败')
   } finally {
     exportingLocal.value = false
   }
@@ -178,8 +182,7 @@ async function handleImportLocal(file: File) {
   importingLocal.value = true
   try {
     await backupApi.importFromLocal(file)
-    ElMessage.success('导入成功，请刷新页面')
-    setTimeout(() => location.reload(), 1000)
+    ElMessage.success('导入成功，应用将自动退出，请重新打开应用')
   } finally {
     importingLocal.value = false
   }
@@ -242,9 +245,8 @@ async function handleImportWebdav(filename: string) {
   importingWebdav.value = true
   try {
     await backupApi.importFromWebdav(filename)
-    ElMessage.success('导入成功，请刷新页面')
+    ElMessage.success('导入成功，应用将自动退出，请重新打开应用')
     webdavListVisible.value = false
-    setTimeout(() => location.reload(), 1000)
   } catch (error: any) {
     ElMessage.error(error?.message || '导入失败')
   } finally {

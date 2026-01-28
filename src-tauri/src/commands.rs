@@ -2205,6 +2205,17 @@ pub async fn delete_project(
     Ok(())
 }
 
+/// 退出应用程序（导入后需要手动重启）
+async fn exit_application() -> Result<()> {
+    tokio::spawn(async {
+        // 延迟 3 秒，等待响应返回前端并给用户时间看提示
+        tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+        std::process::exit(0);
+    });
+
+    Ok(())
+}
+
 // Backup commands
 #[tauri::command]
 pub async fn get_webdav_settings(db: State<'_, SqlitePool>) -> Result<WebdavSettings> {
@@ -2293,20 +2304,15 @@ pub async fn export_to_local() -> Result<Vec<u8>> {
 }
 
 #[tauri::command]
-pub async fn import_from_local(data: Vec<u8>, app: tauri::AppHandle) -> Result<()> {
+pub async fn import_from_local(data: Vec<u8>) -> Result<()> {
     let db_path = get_data_dir().join("ccg_gateway.db");
 
     // Write the database file
     std::fs::write(&db_path, &data)
         .map_err(|e| format!("Failed to write database: {}", e))?;
 
-    tracing::info!("数据库导入成功，准备重启应用...");
-
-    // 延迟 500ms 后重启，给前端时间处理响应
-    tokio::spawn(async move {
-        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-        app.restart();
-    });
+    // 退出应用，用户需手动重启
+    exit_application().await?;
 
     Ok(())
 }
@@ -2423,7 +2429,6 @@ pub async fn list_webdav_backups(db: State<'_, SqlitePool>) -> Result<Vec<Webdav
 pub async fn import_from_webdav(
     db: State<'_, SqlitePool>,
     filename: String,
-    app: tauri::AppHandle,
 ) -> Result<()> {
     use reqwest::Client;
 
@@ -2458,13 +2463,8 @@ pub async fn import_from_webdav(
     std::fs::write(&db_path, &content)
         .map_err(|e| format!("Failed to write database: {}", e))?;
 
-    tracing::info!("数据库导入成功，准备重启应用...");
-
-    // 延迟 500ms 后重启，给前端时间处理响应
-    tokio::spawn(async move {
-        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-        app.restart();
-    });
+    // 退出应用，用户需手动重启
+    exit_application().await?;
 
     Ok(())
 }

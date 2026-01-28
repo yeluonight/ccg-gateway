@@ -4,7 +4,7 @@
   "identifier": "com.ccg.gateway",
   "version": "0.1.0",
   "build": {
-    "devUrl": "http://localhost:3000",
+    "devUrl": "http://localhost:7786",
     "beforeBuildCommand": "scripts\\build-frontend.bat",
     "frontendDist": "../frontend/dist"
   },

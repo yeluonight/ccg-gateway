@@ -1,15 +1,11 @@
-import { defineConfig, loadEnv } from 'vite'
+import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import AutoImport from 'unplugin-auto-import/vite'
 import Components from 'unplugin-vue-components/vite'
 import { ElementPlusResolver } from 'unplugin-vue-components/resolvers'
 import { fileURLToPath, URL } from 'node:url'
 
-export default defineConfig(({ mode }) => {
-  const env = loadEnv(mode, process.cwd() + '/..', '')
-  const gatewayPort = env.GATEWAY_PORT || '7788'
-  const uiPort = parseInt(env.UI_PORT || '3000', 10)
-
+export default defineConfig(() => {
   return {
     base: './',
     clearScreen: false,
@@ -43,13 +39,7 @@ export default defineConfig(({ mode }) => {
       }
     },
     server: {
-      port: uiPort,
-      proxy: {
-        '/api': {
-          target: `http://127.0.0.1:${gatewayPort}`,
-          changeOrigin: true
-        }
-      }
+      port: 7786  // 前端端口固定为 7786
     }
   }
 })

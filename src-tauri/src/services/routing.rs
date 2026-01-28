@@ -35,7 +35,7 @@ pub async fn select_provider(
     // Return the first available provider with its model maps
     if let Some(provider) = providers.into_iter().next() {
         let model_maps = sqlx::query_as::<_, ProviderModelMap>(
-            "SELECT * FROM provider_model_map WHERE provider_id = ? AND enabled = 1",
+            "SELECT * FROM provider_model_map WHERE provider_id = ? AND enabled = 1 ORDER BY id",
         )
         .bind(provider.id)
         .fetch_all(db)
@@ -71,7 +71,7 @@ pub async fn get_available_providers(
     let mut result = Vec::new();
     for provider in providers {
         let model_maps = sqlx::query_as::<_, ProviderModelMap>(
-            "SELECT * FROM provider_model_map WHERE provider_id = ? AND enabled = 1",
+            "SELECT * FROM provider_model_map WHERE provider_id = ? AND enabled = 1 ORDER BY id",
         )
         .bind(provider.id)
         .fetch_all(db)

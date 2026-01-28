@@ -44,7 +44,7 @@ pub async fn get_providers(
 
         // Load model maps
         let maps: Vec<(i64, String, String, i64)> = sqlx::query_as(
-            "SELECT id, source_model, target_model, enabled FROM provider_model_map WHERE provider_id = ?",
+            "SELECT id, source_model, target_model, enabled FROM provider_model_map WHERE provider_id = ? ORDER BY id",
         )
         .bind(provider.id)
         .fetch_all(db.inner())
@@ -80,7 +80,7 @@ pub async fn get_provider(db: State<'_, SqlitePool>, id: i64) -> Result<Provider
 
     // Load model maps
     let maps: Vec<(i64, String, String, i64)> = sqlx::query_as(
-        "SELECT id, source_model, target_model, enabled FROM provider_model_map WHERE provider_id = ?",
+        "SELECT id, source_model, target_model, enabled FROM provider_model_map WHERE provider_id = ? ORDER BY id",
     )
     .bind(id)
     .fetch_all(db.inner())

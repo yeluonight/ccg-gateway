@@ -39,6 +39,7 @@ bytes = "1"
 http-body-util = "0.1"
 pin-project-lite = "0.2"
 flate2 = "1.0"
+quick-xml = "0.37"
 
 [features]
 default = ["desktop"]

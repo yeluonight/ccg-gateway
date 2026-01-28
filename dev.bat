@@ -48,7 +48,7 @@ echo [3/3] Starting Tauri backend...
 echo [INFO] First run may take longer to compile dependencies
 echo.
 cd src-tauri
-set RUST_LOG=debug,ccg_gateway=debug,ccg_gateway_lib=debug
+set RUST_LOG=info,ccg_gateway=debug,ccg_gateway_lib=debug
 cargo run
 
 if %errorlevel% neq 0 (

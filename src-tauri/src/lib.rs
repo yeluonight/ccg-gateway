@@ -135,6 +135,7 @@ pub fn run() {
             commands::export_to_webdav,
             commands::list_webdav_backups,
             commands::import_from_webdav,
+            commands::delete_webdav_backup,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

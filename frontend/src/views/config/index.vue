@@ -80,15 +80,16 @@
     </div>
 
     <!-- WebDAV Backup List Dialog -->
-    <el-dialog v-model="webdavListVisible" title="选择备份文件" width="500px">
+    <el-dialog v-model="webdavListVisible" title="选择备份文件" width="700px">
       <el-table :data="webdavBackups" v-loading="loadingWebdavList">
-        <el-table-column prop="filename" label="文件名" />
+        <el-table-column prop="filename" label="文件名" min-width="280" />
         <el-table-column prop="size" label="大小" width="100">
           <template #default="{ row }">{{ formatSize(row.size) }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="100">
+        <el-table-column label="操作" width="160">
           <template #default="{ row }">
             <el-button type="primary" size="small" @click="handleImportWebdav(row.filename)" :loading="importingWebdav">导入</el-button>
+            <el-button type="danger" size="small" @click="handleDeleteWebdav(row.filename)" :loading="deletingWebdav">删除</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -147,6 +148,7 @@ const savingWebdav = ref(false)
 const exportingWebdav = ref(false)
 const loadingWebdavList = ref(false)
 const importingWebdav = ref(false)
+const deletingWebdav = ref(false)
 const webdavListVisible = ref(false)
 const webdavBackups = ref<WebdavBackup[]>([])
 
@@ -251,6 +253,21 @@ async function handleImportWebdav(filename: string) {
     ElMessage.error(error?.message || '导入失败')
   } finally {
     importingWebdav.value = false
+  }
+}
+
+async function handleDeleteWebdav(filename: string) {
+  await ElMessageBox.confirm(`确定要删除远程备份 ${filename} 吗？`, '警告', { type: 'warning' })
+  deletingWebdav.value = true
+  try {
+    await backupApi.deleteWebdavBackup(filename)
+    ElMessage.success('删除成功')
+    // 重新加载备份列表
+    await handleShowWebdavList()
+  } catch (error: any) {
+    ElMessage.error(error?.message || '删除失败')
+  } finally {
+    deletingWebdav.value = false
   }
 }
 

@@ -57,3 +57,8 @@ export const importFromWebdav = async (filename: string): Promise<{ data: { succ
   await invoke('import_from_webdav', { filename })
   return { data: { success: true, message: 'Database imported successfully' } }
 }
+
+export const deleteWebdavBackup = async (filename: string): Promise<{ data: { success: boolean; message: string } }> => {
+  await invoke('delete_webdav_backup', { filename })
+  return { data: { success: true, message: 'Backup deleted successfully' } }
+}

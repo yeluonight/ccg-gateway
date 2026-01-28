@@ -3,8 +3,8 @@
 <div align="center">
 <strong>智能 AI 模型网关 | 统一代理 · 负载均衡 · 故障转移</strong>
 
-[![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://www.python.org/)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-green.svg)](https://fastapi.tiangolo.com/)
+[![Rust](https://img.shields.io/badge/Rust-1.83+-orange.svg)](https://www.rust-lang.org/)
+[![Tauri](https://img.shields.io/badge/Tauri-2.0+-blue.svg)](https://tauri.app/)
 [![Vue](https://img.shields.io/badge/Vue-3.5+-brightgreen.svg)](https://vuejs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9+-blue.svg)](https://www.typescriptlang.org/)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
@@ -12,9 +12,9 @@
 
 ## 📖 项目简介
 
-CCG Gateway 是一个为多种 AI CLI 工具（Claude Code、Codex、Gemini）设计的智能网关服务，提供统一的代理接口、智能负载均衡和自动故障转移能力。支持桌面应用和 Web 服务两种部署模式，让 AI 服务的使用更加稳定可靠。
+CCG Gateway 是一个为多种 AI CLI 工具（Claude Code、Codex、Gemini）设计的智能网关服务，提供统一的代理接口、智能负载均衡和自动故障转移能力。
 
-本项目根据作者自身的实际需求立项，开发过程中大量参考了已有开源项目，具体开源项目列表请见 [致谢](#-致谢)。
+**⚠️ 注意：当前版本已简化为仅支持桌面应用模式。** Docker/Web 模式的 HTTP API 实现已从前端移除。
 
 ### 核心特性
 
@@ -23,83 +23,18 @@ CCG Gateway 是一个为多种 AI CLI 工具（Claude Code、Codex、Gemini）�
 - 🗺️ **模型映射** - 灵活的模型名称映射
 - 📊 **实时监控** - 完整的请求日志和统计分析
 - ⚙️ **预设配置** - 一键注入全局配置、MCP、全局提示词等内容
+- 💾 **备份恢复** - 支持配置导出/导入,WebDAV 云备份
 
 ---
 
 ## 🚀 快速开始
 
-### 方式一：Releases 安装（推荐）
+### 桌面应用（当前唯一支持模式）
 
-1. 前往 [Releases](https://github.com/mos1128/ccg-gateway/releases) 页面下载最新版本
-2. 解压后运行即可
-
-### 方式二：从源码运行
-
-#### 环境要求
-
-- Python 3.11+
-- Node.js 18+
-- pnpm
-- uv
-
-#### 一键启动脚本（推荐）
-
-脚本会自动安装依赖，直接运行脚本即可。
-
-```bash
-# 启动后端服务
-start-backend.bat
-
-# 启动前端服务
-start-frontend.bat
-```
-
-#### 手动安装依赖（备选）
-
-```bash
-# 安装后端依赖
-cd backend
-uv sync
-
-# 安装前端依赖
-cd frontend
-pnpm install
-```
-
-### 方式三：Docker 部署
-
-适合没有 Windows 环境或不想在本地安装依赖的用户。
-
-#### 启动步骤
-
-```bash
-# 构建镜像
-docker build -t ccg-gateway .
-
-# 启动容器
-docker run -d -p 7788:7788 -v ./data:/data -v ~/.claude:/root/.claude -v ~/.codex:/root/.codex -v ~/.gemini:/root/.gemini --name ccg-gateway ccg-gateway
-
-# 查看日志
-docker logs -f ccg-gateway
-
-# 停止容器
-docker stop ccg-gateway
-```
-
-如果使用 powershell 执行，启动容器的命令需要修改一下
-
-```PowerShell
-# 启动容器
-docker run -d -p 7788:7788 -v ./data:/data -v ${env:USERPROFILE}\.claude:/root/.claude -v ${env:USERPROFILE}\.codex:/root/.codex -v ${env:USERPROFILE}\.gemini:/root/.gemini --name ccg-gateway ccg-gateway
-```
-
-#### 访问地址
-
-服务地址：http://localhost:7788
-
-#### 数据持久化
-
-配置数据和数据库文件保存在 `./data` 目录，容器重启后数据不会丢失。
+1. 前往 [Releases](https://github.com/mos1128/ccg-gateway/releases) 下载安装包
+2. 运行 `CCG Gateway_0.x.x_x64-setup.exe`
+3. 启动应用，系统托盘会出现图标
+4. 点击托盘图标，选择\"打开管理面板\"
 
 ---
 
@@ -115,11 +50,11 @@ docker run -d -p 7788:7788 -v ./data:/data -v ${env:USERPROFILE}\.claude:/root/.
 
 > **使用场景**
 >
-> 小帅订阅了三个服务商：服务商 A 每 4 小时重置额度，服务商 B 每 9 小时重置额度，服务商 C 按量计费。
+> 你订阅了三个服务商：服务商 A 每 4 小时重置额度，服务商 B 每 9 小时重置额度，服务商 C 按量计费。
 >
-> 为了保证可用性和性价比，小帅配置服务商 A 拉黑时长：4 小时，配置服务商 B 拉黑时长：9 小时，将服务商 C **拖拽** 到最后作为兜底。
+> 配置服务商 A 拉黑时长 4 小时，服务商 B 拉黑时长 9 小时，将服务商 C **拖拽** 到最后作为兜底。
 >
-> 网关会优先转发请求到服务商 A，服务商 A 不可用再转发到服务商 B，服务商 B 不可用再转发到服务商 C，当服务商 A 恢复后继续使用服务商 A。
+> 网关会优先转发请求到服务商 A，不可用再转发到服务商 B，再不可用转发到服务商 C。
 
 ### 2. 模型映射
 
@@ -129,14 +64,15 @@ docker run -d -p 7788:7788 -v ./data:/data -v ${env:USERPROFILE}\.claude:/root/.
 
 > **使用场景**
 >
-> 服务商 A 的模型命名是 `cc-opus-4.5`，而其他服务商的模型命名都遵循官方是 `claude-opus-4-5-20251101`，小帅就为服务商 A 配置了模型映射：
+> 服务商 A 的模型命名是 `cc-opus-4.5`，而其他服务商是 `claude-opus-4-5-20251101`。
 >
+> 为服务商 A 配置模型映射：
 > ```
 > *opus* -> cc-opus-4.5
 > *haiku* -> cc-haiku-4.5
 > ```
 >
-> 这样 CLI 无需任何额外配置，所有请求都能正确转发到服务商。
+> CLI 无需任何额外配置，所有请求都能正确转发。
 
 ### 3. 配置管理
 
@@ -149,29 +85,36 @@ docker run -d -p 7788:7788 -v ./data:/data -v ${env:USERPROFILE}\.claude:/root/.
 ### 4. 请求日志与统计
 
 - **请求日志**：详细记录每个请求的完整信息（请求内容、响应内容、耗时、token 用量等）
+- **每日统计**：按日期汇总请求量和 token 消耗
 - **系统日志**：记录服务商切换、故障、拉黑等系统事件
-
-> **使用场景**
->
-> 小帅求知欲强，想知道 CLI 工作时会发送哪些请求，请求的内容是什么。
 
 ### 5. 会话管理
 
-可查看各个 CLI 的所有会话。
-
-> **使用场景**
->
-> 小帅求知欲强，想看每个会话 AI 思考了什么内容，调用了什么工具，工具的返回结果是什么。
+可查看各个 CLI 的所有会话记录。
 
 ---
 
-## ✨ 一些巧思
+## 📁 部署文件说明
 
-### 复制服务商
+### 桌面应用发布
 
-可能服务商为多个 CLI 都提供了服务，重复填也太麻烦了，单独开发复制功能意义也不大。
+发布时需提供以下文件给用户：
 
-于是产生了一个可以作为机制的 bug：小帅先添加任意一个 CLI 的服务商，然后点击编辑，再将弹窗关闭。切换到另外一个 CLI 的配置 Tab，点击添加服务商。发现原本的内容居然还在，直接保存就好啦。
+| 文件 | 说明 |
+|------|------|
+| `CCG Gateway_0.x.x_x64-setup.exe` | NSIS 安装包(推荐,~4MB) |
+| `CCG Gateway_0.x.x_x64_en-US.msi` | MSI 安装包(备用,~7MB) |
+
+---
+
+## 🖥️ 系统托盘
+
+桌面模式下，系统托盘提供以下功能：
+
+- **打开管理面板** - 打开 Web 管理界面
+- **启动/停止服务** - 控制网关服务状态
+- **查看日志** - 查看系统运行日志
+- **退出** - 完全退出应用
 
 ---
 
@@ -185,15 +128,23 @@ docker run -d -p 7788:7788 -v ./data:/data -v ${env:USERPROFILE}\.claude:/root/.
 4. 推送到分支 (`git push origin feature/AmazingFeature`)
 5. 开启 Pull Request
 
+开发者请参考 [DEVELOPER.md](DEVELOPER.md)。
+
 ---
 
 ## 🙏 致谢
 
-感谢各开源作者的贡献：
+感谢各开源项目的启发：
 
 - [cc-switch](https://github.com/farion1231/cc-switch) - A cross-platform desktop All-in-One assistant tool for Claude Code, Codex & Gemini CLI.
 - [coding-tool](https://github.com/CooperJiang/coding-tool) - claudecode|codex|gemini cli 增强工具.
 - [code-switch-R](https://github.com/Rogers-F/code-switch-R) - Claude Code & Codex 多供应商代理与管理工具
+
+---
+
+## 📄 许可证
+
+[MIT License](LICENSE)
 
 ---
 

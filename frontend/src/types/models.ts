@@ -172,7 +172,6 @@ export interface RequestLogListItem {
   cli_type: string
   provider_name: string
   model_id: string | null
-  success: boolean
   status_code: number | null
   elapsed_ms: number
   input_tokens: number
@@ -187,10 +186,8 @@ export interface RequestLogDetail extends RequestLogListItem {
   forward_url: string
   forward_headers: string
   forward_body: string
-  provider_status: number | null
   provider_headers: string | null
   provider_body: string | null
-  response_status: number | null
   response_headers: string | null
   response_body: string | null
   error_message: string | null

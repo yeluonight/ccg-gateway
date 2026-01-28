@@ -195,6 +195,8 @@ async function handleTestWebdav() {
     } else {
       ElMessage.error('连接失败')
     }
+  } catch (error: any) {
+    ElMessage.error(error?.message || '连接失败')
   } finally {
     testingWebdav.value = false
   }
@@ -205,6 +207,8 @@ async function handleSaveWebdav() {
   try {
     await backupApi.updateWebdavSettings(webdavForm.value)
     ElMessage.success('WebDAV 配置已保存')
+  } catch (error: any) {
+    ElMessage.error(error?.message || '保存失败')
   } finally {
     savingWebdav.value = false
   }
@@ -215,6 +219,8 @@ async function handleExportWebdav() {
   try {
     const { data } = await backupApi.exportToWebdav()
     ElMessage.success(`导出成功: ${data.filename}`)
+  } catch (error: any) {
+    ElMessage.error(error?.message || '导出失败')
   } finally {
     exportingWebdav.value = false
   }
@@ -239,6 +245,8 @@ async function handleImportWebdav(filename: string) {
     ElMessage.success('导入成功，请刷新页面')
     webdavListVisible.value = false
     setTimeout(() => location.reload(), 1000)
+  } catch (error: any) {
+    ElMessage.error(error?.message || '导入失败')
   } finally {
     importingWebdav.value = false
   }

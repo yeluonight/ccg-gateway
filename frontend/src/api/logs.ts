@@ -1,4 +1,4 @@
-import api from './instance'
+import { invoke } from '@tauri-apps/api/core'
 import type {
   RequestLogListResponse,
   RequestLogDetail,
@@ -12,7 +12,6 @@ export interface RequestLogQuery {
   page_size?: number
   cli_type?: string
   provider_name?: string
-  success?: boolean
 }
 
 export interface SystemLogQuery {
@@ -24,13 +23,44 @@ export interface SystemLogQuery {
 }
 
 export const logsApi = {
-  getSettings: () => api.get<GatewaySettings>('/logs/settings'),
-  updateSettings: (data: GatewaySettingsUpdate) => api.put('/logs/settings', data),
+  getSettings: async () => {
+    const data = await invoke<{ debug_log: number }>('get_gateway_settings')
+    return { data: { debug_log: !!data.debug_log } as GatewaySettings }
+  },
+  updateSettings: async (data: GatewaySettingsUpdate) => {
+    await invoke('update_gateway_settings', { debugLog: data.debug_log })
+    return { data: null }
+  },
 
-  listRequestLogs: (params: RequestLogQuery) => api.get<RequestLogListResponse>('/logs/requests', { params }),
-  getRequestLog: (id: number) => api.get<RequestLogDetail>(`/logs/requests/${id}`),
-  clearRequestLogs: (before_timestamp?: number) => api.delete('/logs/requests', { data: { before_timestamp } }),
+  listRequestLogs: async (params: RequestLogQuery) => {
+    const data = await invoke<RequestLogListResponse>('get_request_logs', {
+      page: params.page,
+      pageSize: params.page_size,
+      cliType: params.cli_type
+    })
+    return { data }
+  },
+  getRequestLog: async (id: number) => {
+    const data = await invoke<RequestLogDetail>('get_request_log_detail', { id })
+    return { data }
+  },
+  clearRequestLogs: async (before_timestamp?: number) => {
+    await invoke('clear_request_logs')
+    return { data: null }
+  },
 
-  listSystemLogs: (params: SystemLogQuery) => api.get<SystemLogListResponse>('/logs/system', { params }),
-  clearSystemLogs: (before_timestamp?: number) => api.delete('/logs/system', { data: { before_timestamp } })
+  listSystemLogs: async (params: SystemLogQuery) => {
+    const data = await invoke<SystemLogListResponse>('get_system_logs', {
+      page: params.page,
+      pageSize: params.page_size,
+      level: params.level,
+      eventType: params.event_type,
+      providerName: params.provider_name
+    })
+    return { data }
+  },
+  clearSystemLogs: async (before_timestamp?: number) => {
+    await invoke('clear_system_logs')
+    return { data: null }
+  }
 }

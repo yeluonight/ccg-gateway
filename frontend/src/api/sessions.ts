@@ -1,4 +1,4 @@
-import api from './instance'
+import { invoke } from '@tauri-apps/api/core'
 
 export interface ProjectInfo {
   name: string
@@ -32,30 +32,41 @@ export interface PaginatedResponse<T> {
 }
 
 export const sessionsApi = {
-  listProjects: (cliType: string, page = 1, pageSize = 20) =>
-    api.get<PaginatedResponse<ProjectInfo>>('/sessions/projects', {
-      params: { cli_type: cliType, page, page_size: pageSize }
-    }),
-
-  listSessions: (cliType: string, projectName: string, page = 1, pageSize = 20) =>
-    api.get<PaginatedResponse<SessionInfo>>(
-      `/sessions/projects/${encodeURIComponent(projectName)}/sessions`,
-      { params: { cli_type: cliType, page, page_size: pageSize } }
-    ),
-
-  getSessionMessages: (cliType: string, projectName: string, sessionId: string) =>
-    api.get<SessionMessage[]>(
-      `/sessions/projects/${encodeURIComponent(projectName)}/sessions/${sessionId}/messages`,
-      { params: { cli_type: cliType } }
-    ),
-
-  deleteSession: (cliType: string, projectName: string, sessionId: string) =>
-    api.delete(`/sessions/projects/${encodeURIComponent(projectName)}/sessions/${sessionId}`, {
-      params: { cli_type: cliType }
-    }),
-
-  deleteProject: (cliType: string, projectName: string) =>
-    api.delete(`/sessions/projects/${encodeURIComponent(projectName)}`, {
-      params: { cli_type: cliType }
+  listProjects: async (cliType: string, page = 1, pageSize = 20): Promise<{ data: PaginatedResponse<ProjectInfo> }> => {
+    const data = await invoke<PaginatedResponse<ProjectInfo>>('get_session_projects', {
+      cliType,
+      page,
+      pageSize
     })
+    return { data }
+  },
+
+  listSessions: async (cliType: string, projectName: string, page = 1, pageSize = 20): Promise<{ data: PaginatedResponse<SessionInfo> }> => {
+    const data = await invoke<PaginatedResponse<SessionInfo>>('get_project_sessions', {
+      cliType,
+      projectName,
+      page,
+      pageSize
+    })
+    return { data }
+  },
+
+  getSessionMessages: async (cliType: string, projectName: string, sessionId: string): Promise<{ data: SessionMessage[] }> => {
+    const data = await invoke<SessionMessage[]>('get_session_messages', {
+      cliType,
+      projectName,
+      sessionId
+    })
+    return { data }
+  },
+
+  deleteSession: async (cliType: string, projectName: string, sessionId: string) => {
+    await invoke('delete_session', { cliType, projectName, sessionId })
+    return { data: null }
+  },
+
+  deleteProject: async (cliType: string, projectName: string) => {
+    await invoke('delete_project', { cliType, projectName })
+    return { data: null }
+  }
 }

@@ -125,28 +125,37 @@ async function handleSave() {
     showDialog.value = false
     form.value = { name: '', config_json: '' }
     await fetchList()
-  } catch {
-    // handled by interceptor
+  } catch (error: any) {
+    ElMessage.error(error?.message || '操作失败')
   }
 }
 
 async function handleCliToggle(mcp: Mcp, cliType: string, enabled: boolean) {
-  const cli_flags = {
-    claude_code: mcp.cli_flags?.claude_code ?? false,
-    codex: mcp.cli_flags?.codex ?? false,
-    gemini: mcp.cli_flags?.gemini ?? false,
-    [cliType]: enabled
+  try {
+    const cli_flags = [
+      { cli_type: 'claude_code', enabled: cliType === 'claude_code' ? enabled : (mcp.cli_flags?.claude_code ?? false) },
+      { cli_type: 'codex', enabled: cliType === 'codex' ? enabled : (mcp.cli_flags?.codex ?? false) },
+      { cli_type: 'gemini', enabled: cliType === 'gemini' ? enabled : (mcp.cli_flags?.gemini ?? false) }
+    ]
+    await mcpApi.update(mcp.id, { cli_flags })
+    await fetchList()
+    ElMessage.success('已更新')
+  } catch (error: any) {
+    ElMessage.error(error?.message || '更新失败')
   }
-  await mcpApi.update(mcp.id, { cli_flags })
-  await fetchList()
-  ElMessage.success('已更新')
 }
 
 async function handleDelete(mcp: Mcp) {
-  await ElMessageBox.confirm('确定删除该 MCP?', '确认')
-  await mcpApi.delete(mcp.id)
-  ElMessage.success('已删除')
-  await fetchList()
+  try {
+    await ElMessageBox.confirm('确定删除该 MCP?', '确认')
+    await mcpApi.delete(mcp.id)
+    ElMessage.success('已删除')
+    await fetchList()
+  } catch (error: any) {
+    if (error !== 'cancel') {
+      ElMessage.error(error?.message || '删除失败')
+    }
+  }
 }
 
 onMounted(fetchList)

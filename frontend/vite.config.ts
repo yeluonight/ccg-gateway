@@ -11,6 +11,8 @@ export default defineConfig(({ mode }) => {
   const uiPort = parseInt(env.UI_PORT || '3000', 10)
 
   return {
+    base: './',
+    clearScreen: false,
     plugins: [
       vue(),
       AutoImport({
@@ -43,7 +45,7 @@ export default defineConfig(({ mode }) => {
     server: {
       port: uiPort,
       proxy: {
-        '/admin': {
+        '/api': {
           target: `http://127.0.0.1:${gatewayPort}`,
           changeOrigin: true
         }

@@ -1,0 +1,51 @@
+[package]
+name = "ccg-gateway"
+version = "0.1.0"
+edition = "2021"
+description = "CCG Gateway - API Gateway for Claude Code, Codex, and Gemini CLI"
+authors = ["CCG Gateway"]
+license = "MIT"
+
+[lib]
+name = "ccg_gateway_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-shell = "2"
+tokio = { version = "1", features = ["full"] }
+axum = "0.7"
+sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+reqwest = { version = "0.12", features = ["json", "stream"] }
+tower-http = { version = "0.6", features = ["cors"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+thiserror = "2"
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1", features = ["v4"] }
+dirs = "6"
+toml = "0.8"
+toml_edit = "0.22"
+regex = "1"
+urlencoding = "2"
+async-stream = "0.3"
+futures-util = "0.3"
+bytes = "1"
+http-body-util = "0.1"
+pin-project-lite = "0.2"
+flate2 = "1.0"
+
+[features]
+default = ["desktop"]
+desktop = []
+
+[profile.release]
+strip = true
+lto = true
+codegen-units = 1
+panic = "abort"

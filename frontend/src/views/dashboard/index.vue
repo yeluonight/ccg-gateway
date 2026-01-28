@@ -147,8 +147,10 @@ async function handleCliToggle(cliType: string, enabled: boolean) {
   try {
     await settingsStore.updateCli(cliType, { enabled })
     ElMessage.success(`${cliType} 已${enabled ? '启用' : '禁用'}`)
-  } catch {
-    ElMessage.error('操作失败')
+  } catch (error: any) {
+    console.error('CLI toggle error:', error)
+    const errorMsg = error?.message || error?.toString() || '操作失败'
+    ElMessage.error(`操作失败: ${errorMsg}`)
   } finally {
     cliLoading[cliType] = false
   }

@@ -31,6 +31,10 @@ export const useSessionStore = defineStore('sessions', () => {
       const { data } = await sessionsApi.listProjects(type, projectPage.value, pageSize.value)
       projects.value = data.items
       projectTotal.value = data.total
+    } catch (error: any) {
+      console.error('Failed to fetch projects:', error)
+      projects.value = []
+      projectTotal.value = 0
     } finally {
       loading.value = false
     }
@@ -51,6 +55,10 @@ export const useSessionStore = defineStore('sessions', () => {
       const { data } = await sessionsApi.listSessions(type, projectName, sessionPage.value, pageSize.value)
       sessions.value = data.items
       sessionTotal.value = data.total
+    } catch (error: any) {
+      console.error('Failed to fetch sessions:', error)
+      sessions.value = []
+      sessionTotal.value = 0
     } finally {
       loading.value = false
     }
@@ -64,6 +72,9 @@ export const useSessionStore = defineStore('sessions', () => {
       const type = cliType || uiStore.sessionsActiveCliType
       const { data } = await sessionsApi.getSessionMessages(type, projectName, sessionId)
       messages.value = data
+    } catch (error: any) {
+      console.error('Failed to fetch messages:', error)
+      messages.value = []
     } finally {
       loading.value = false
     }

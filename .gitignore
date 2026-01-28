@@ -1,14 +1,14 @@
-# Python
-__pycache__/
-*.py[cod]
-*.pyo
-venv/
-.venv/
-*.egg-info/
+# Rust / Tauri
+/target/
+src-tauri/target/
+**/*.rs.bk
+Cargo.lock
 
-# Node.js
+# Node.js / Frontend
 node_modules/
+frontend/node_modules/
 dist/
+frontend/dist/
 .vite/
 
 # IDE
@@ -16,6 +16,7 @@ dist/
 .vscode/
 *.swp
 *.swo
+*.iml
 
 # System
 .DS_Store
@@ -25,15 +26,36 @@ Thumbs.db
 *.db
 *.sqlite
 *.sqlite3
+data/
 
 # Project specific
 .ace-tool/
 .claude/
-data/
 .env
+*.env.*
 
 # Build artifacts
-backend/build/
-backend/dist/
-*.spec.bak
+*.msi
+*.exe
+*.dmg
+*.app
+*.deb
+
+# Tauri specific
+src-tauri/WixTools
+src-tauri/target/
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Testing
+coverage/
+.nyc_output/
+
+# Temporary files
 tmpclaude-*
+tmp/

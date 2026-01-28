@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@element-plus/icons-vue": "^2.3.0",
+    "@tauri-apps/api": "^2.9.1",
     "@vueuse/core": "^10.7.0",
     "axios": "^1.6.0",
     "echarts": "^5.4.0",

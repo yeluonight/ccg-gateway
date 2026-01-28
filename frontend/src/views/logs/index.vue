@@ -35,12 +35,6 @@
                 <el-option v-for="p in providerOptions" :key="p" :label="p" :value="p" />
               </el-select>
             </el-form-item>
-            <el-form-item label="状态">
-              <el-select v-model="requestFilters.success" clearable placeholder="全部" style="width: 100px">
-                <el-option label="成功" :value="true" />
-                <el-option label="失败" :value="false" />
-              </el-select>
-            </el-form-item>
             <el-form-item>
               <el-button type="primary" @click="fetchRequestLogs">查询</el-button>
               <el-button @click="resetRequestFilters">重置</el-button>
@@ -57,14 +51,13 @@
             <el-table-column prop="cli_type" label="CLI" width="130" />
             <el-table-column prop="provider_name" label="服务商" width="150" show-overflow-tooltip />
             <el-table-column prop="model_id" label="模型" width="220" show-overflow-tooltip />
-            <el-table-column label="状态" width="80">
+            <el-table-column label="状态码" width="90">
               <template #default="{ row }">
-                <el-tag :type="row.success ? 'success' : 'danger'" size="small">
-                  {{ row.success ? '成功' : '失败' }}
+                <el-tag :type="getStatusCodeType(row.status_code)" size="small">
+                  {{ row.status_code || '-' }}
                 </el-tag>
               </template>
             </el-table-column>
-            <el-table-column prop="status_code" label="状态码" width="80" />
             <el-table-column label="耗时" width="90">
               <template #default="{ row }">{{ row.elapsed_ms }}ms</template>
             </el-table-column>
@@ -179,9 +172,9 @@
           <el-descriptions-item label="模型">{{ requestDetail.model_id || '-' }}</el-descriptions-item>
           <el-descriptions-item label="Input Tokens">{{ formatTokens(requestDetail.input_tokens) }}</el-descriptions-item>
           <el-descriptions-item label="Output Tokens">{{ formatTokens(requestDetail.output_tokens) }}</el-descriptions-item>
-          <el-descriptions-item label="状态">
-            <el-tag :type="requestDetail.success ? 'success' : 'danger'" size="small">
-              {{ requestDetail.success ? '成功' : '失败' }}
+          <el-descriptions-item label="状态码">
+            <el-tag :type="getStatusCodeType(requestDetail.status_code)" size="small">
+              {{ requestDetail.status_code || '-' }}
             </el-tag>
           </el-descriptions-item>
         </el-descriptions>
@@ -258,8 +251,8 @@
             <template #header>
               <div class="detail-card-header">
                 <span class="card-title">服务商响应</span>
-                <el-tag size="small" :type="getStatusType(requestDetail.provider_status)">
-                  {{ requestDetail.provider_status || '-' }}
+                <el-tag size="small" :type="getStatusCodeType(requestDetail.status_code)">
+                  {{ requestDetail.status_code || '-' }}
                 </el-tag>
               </div>
             </template>
@@ -290,8 +283,8 @@
             <template #header>
               <div class="detail-card-header">
                 <span class="card-title">网关转发响应</span>
-                <el-tag size="small" :type="getStatusType(requestDetail.response_status)">
-                  {{ requestDetail.response_status || '-' }}
+                <el-tag size="small" :type="getStatusCodeType(requestDetail.status_code)">
+                  {{ requestDetail.status_code || '-' }}
                 </el-tag>
               </div>
             </template>
@@ -352,8 +345,7 @@ const requestPageSize = ref(20)
 const requestTotal = ref(0)
 const requestFilters = ref({
   cli_type: '',
-  provider_name: '',
-  success: undefined as boolean | undefined
+  provider_name: ''
 })
 const requestDetailVisible = ref(false)
 const requestDetail = ref<RequestLogDetail | null>(null)
@@ -404,7 +396,6 @@ async function fetchRequestLogs() {
     }
     if (requestFilters.value.cli_type) params.cli_type = requestFilters.value.cli_type
     if (requestFilters.value.provider_name) params.provider_name = requestFilters.value.provider_name
-    if (requestFilters.value.success !== undefined) params.success = requestFilters.value.success
 
     const res = await logsApi.listRequestLogs(params)
     requestLogs.value = res.data.items
@@ -415,7 +406,7 @@ async function fetchRequestLogs() {
 }
 
 function resetRequestFilters() {
-  requestFilters.value = { cli_type: '', provider_name: '', success: undefined }
+  requestFilters.value = { cli_type: '', provider_name: '' }
   requestPage.value = 1
   fetchRequestLogs()
 }
@@ -503,11 +494,12 @@ function formatTokens(tokens: number | undefined): string {
   return (tokens / 1000).toFixed(1) + 'K'
 }
 
-function getStatusType(status: number | null): string {
-  if (!status) return 'info'
-  if (status >= 200 && status < 300) return 'success'
-  if (status >= 400) return 'danger'
-  return 'warning'
+function getStatusCodeType(code: number | null): string {
+  if (!code) return 'info'
+  if (code >= 200 && code < 300) return 'success'
+  if (code >= 400 && code < 500) return 'warning'
+  if (code >= 500) return 'danger'
+  return 'info'
 }
 
 function getFullClientUrl(): string {

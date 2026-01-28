@@ -1,1 +1,0 @@
-# CCG Gateway Desktop Module

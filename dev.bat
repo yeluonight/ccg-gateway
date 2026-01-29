@@ -24,36 +24,18 @@ if %errorlevel% neq 0 (
 echo [OK] Environment check passed
 echo.
 
-:: Install/update frontend dependencies
-echo [1/3] Installing frontend dependencies...
-cd frontend
-pnpm install
-if %errorlevel% neq 0 (
-    echo [ERROR] Frontend dependencies installation failed
-    cd ..
-    pause
-    exit /b 1
-)
-cd ..
-echo.
-
-:: Start frontend dev server
-echo [2/3] Starting frontend dev server...
-start "CCG Gateway - Frontend" cmd /k "cd frontend && echo [Frontend] Starting... && pnpm dev"
-echo [INFO] Frontend server started in a new window
-echo.
-
-:: Start Tauri backend
-echo [3/3] Starting Tauri backend...
+:: Start Tauri dev (automatically starts frontend + backend)
+echo [Starting] Launching Tauri development environment...
 echo [INFO] First run may take longer to compile dependencies
+echo [INFO] Frontend will start automatically (http://localhost:7786)
 echo.
 cd src-tauri
 set RUST_LOG=info,ccg_gateway=debug,ccg_gateway_lib=debug
-cargo run
+cargo tauri dev
 
 if %errorlevel% neq 0 (
     echo.
-    echo [ERROR] Tauri backend failed to start
+    echo [ERROR] Tauri development environment failed to start
     cd ..
     pause
     exit /b 1
